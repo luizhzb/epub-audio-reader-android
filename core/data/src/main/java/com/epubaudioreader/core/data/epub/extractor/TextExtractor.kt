@@ -27,8 +27,8 @@ class TextExtractor @Inject constructor() {
 
     fun extract(xhtml: String): String {
         // Pre-process: remove HTML comments to avoid parser issues
-        val cleaned = xhtml.replace(Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL), "")
-            .replace(Regex("<\?xml[^?]*\?>", RegexOption.IGNORE_CASE), "")
+        val cleaned = xhtml.replace(Regex("""<!--.*?-->""", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("""<\?xml[^?]*\?>""", RegexOption.IGNORE_CASE), "")
 
         if (cleaned.isBlank()) return ""
 
@@ -140,7 +140,7 @@ class TextExtractor @Inject constructor() {
             .replace("&#160;", " ")
             .replace("&#xA0;", " ")
             // Numeric entities
-            .replace(Regex("&#(\d+);")) { match ->
+            .replace(Regex("""&#(\d+);""")) { match ->
                 val code = match.groupValues[1].toIntOrNull() ?: 0
                 if (code in 32..65535) code.toChar().toString() else match.value
             }

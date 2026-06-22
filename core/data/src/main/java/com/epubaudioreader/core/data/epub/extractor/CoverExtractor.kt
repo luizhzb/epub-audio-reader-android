@@ -131,7 +131,7 @@ class CoverExtractor @Inject constructor(
                 }
 
                 // Look for meta name="cover" content="..."
-                val metaRegex = Regex("<meta\s+[^>]*name=\"cover\"[^>]*content=\"([^\"]*)\"", RegexOption.IGNORE_CASE)
+                val metaRegex = Regex("""<meta\s+[^>]*name="cover"[^>]*content="([^"]*)"""", RegexOption.IGNORE_CASE)
                 val match = metaRegex.find(opfContent)
                 match?.groupValues?.get(1)
             }
