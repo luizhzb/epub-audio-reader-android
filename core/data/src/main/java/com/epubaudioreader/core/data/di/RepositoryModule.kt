@@ -1,5 +1,7 @@
 package com.epubaudioreader.core.data.di
 
+import com.epubaudioreader.core.data.epub.parser.EpubParser
+import com.epubaudioreader.core.data.epub.parser.EpubParserImpl
 import com.epubaudioreader.core.data.repository.BookRepositoryImpl
 import com.epubaudioreader.core.data.repository.ChapterRepositoryImpl
 import com.epubaudioreader.core.domain.repository.BookRepository
@@ -17,4 +19,7 @@ abstract class RepositoryModule {
 
     @Binds
     abstract fun bindChapterRepository(impl: ChapterRepositoryImpl): ChapterRepository
+
+    @Binds
+    abstract fun bindEpubParser(impl: EpubParserImpl): EpubParser
 }

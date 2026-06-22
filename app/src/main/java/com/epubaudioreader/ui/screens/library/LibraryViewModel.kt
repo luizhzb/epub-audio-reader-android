@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import java.io.File
 import javax.inject.Inject
 
 @HiltViewModel
@@ -50,8 +53,9 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(importProgress = ImportProgress.Importing("Importando...", 0)) }
             try {
-                val fileSize = context.contentResolver.openFileDescriptor(uri, "r")?.statSize ?: 0L
-                when (val result = importBookUseCase(uri.toString(), fileSize)) {
+                val tempFile = copyUriToTempFile(uri)
+                val fileSize = tempFile.length()
+                when (val result = importBookUseCase(tempFile.absolutePath, fileSize)) {
                     is com.epubaudioreader.core.common.result.Result.Success -> {
                         _uiState.update { it.copy(importProgress = ImportProgress.Success(result.data.id)) }
                     }
@@ -60,9 +64,19 @@ class LibraryViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(importProgress = ImportProgress.Error(e.message ?: "Erro")) }
+                _uiState.update { it.copy(importProgress = ImportProgress.Error(e.message ?: "Erro ao importar")) }
             }
         }
+    }
+
+    private suspend fun copyUriToTempFile(uri: Uri): File = withContext(Dispatchers.IO) {
+        val tempFile = File.createTempFile("epub_import_", ".epub", context.cacheDir)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            tempFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        } ?: throw IllegalStateException("Nao foi possivel abrir o arquivo selecionado")
+        tempFile
     }
 
     fun confirmDelete(book: com.epubaudioreader.core.domain.model.Book) {

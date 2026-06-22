@@ -3,8 +3,8 @@ package com.epubaudioreader.core.data.epub.extractor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.epubaudioreader.core.data.epub.model.ParsedEpub
+import com.epubaudioreader.core.data.local.storage.EpubStorageManager
 import java.io.File
-import java.io.FileOutputStream
 import java.util.zip.ZipFile
 import javax.inject.Inject
 
@@ -16,9 +16,11 @@ import javax.inject.Inject
  * 4. heuristic by name "cover" in manifest
  * 5. first image in manifest
  *
- * Resizes to max 512x768 and saves as JPEG.
+ * Resizes to max 512x768 and saves as JPEG via EpubStorageManager.
  */
-class CoverExtractor @Inject constructor() {
+class CoverExtractor @Inject constructor(
+    private val storageManager: EpubStorageManager
+) {
 
     companion object {
         private const val MAX_WIDTH = 512
@@ -26,7 +28,7 @@ class CoverExtractor @Inject constructor() {
         private const val JPEG_QUALITY = 85
     }
 
-    fun extractCover(parsedEpub: ParsedEpub, bookId: Long): String? {
+    suspend fun extractCover(parsedEpub: ParsedEpub, bookId: Long): String? {
         val coverBytes = findCoverBytes(parsedEpub)
             ?: return null
 
@@ -36,22 +38,15 @@ class CoverExtractor @Inject constructor() {
 
             val resized = resizeBitmap(bitmap, MAX_WIDTH, MAX_HEIGHT)
 
-            // Ensure output directory exists
-            val coversDir = File(parsedEpub.bookFile.parentFile, "covers").apply {
-                if (!exists()) mkdirs()
-            }
-
-            val coverFile = File(coversDir, "cover_$bookId.jpg")
-            FileOutputStream(coverFile).use { out ->
-                resized.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
-            }
+            // Save cover via storageManager to ensure consistent path
+            val coverPath = storageManager.saveCover(resized, bookId)
 
             // Recycle if original was different
             if (resized !== bitmap) {
                 bitmap.recycle()
             }
 
-            coverFile.absolutePath
+            coverPath
         } catch (_: Exception) {
             null
         }
