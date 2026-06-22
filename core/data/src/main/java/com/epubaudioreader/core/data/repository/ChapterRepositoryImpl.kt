@@ -32,6 +32,7 @@ class ChapterRepositoryImpl @Inject constructor(
             val text = storageManager.readChapterText(chapter.contentFilePath)
             val paragraphs = text.split("\n\n").filter { it.isNotBlank() }
             ChapterContent(
+                title = chapter.title,
                 paragraphs = paragraphs,
                 totalChars = text.length,
                 totalParagraphs = paragraphs.size

@@ -16,7 +16,7 @@ interface ChapterDao {
     suspend fun getChapterById(chapterId: Long): ChapterEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertChapters(chapters: List<ChapterEntity>)
+    suspend fun insertChapters(chapters: List<ChapterEntity>): List<Long>
 
     @Query("SELECT * FROM chapters WHERE bookId = :bookId AND orderIndex = :orderIndex LIMIT 1")
     suspend fun getChapterByOrder(bookId: Long, orderIndex: Int): ChapterEntity?
