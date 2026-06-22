@@ -26,4 +26,7 @@ interface ChapterDao {
 
     @Query("DELETE FROM chapters WHERE bookId = :bookId")
     suspend fun deleteChaptersByBook(bookId: Long)
+
+    @Query("UPDATE chapters SET contentFilePath = :path WHERE id = :chapterId")
+    suspend fun updateContentFilePath(chapterId: Long, path: String)
 }

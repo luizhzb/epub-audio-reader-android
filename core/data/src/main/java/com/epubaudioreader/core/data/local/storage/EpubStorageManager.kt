@@ -68,6 +68,16 @@ class EpubStorageManager @Inject constructor(
         getChaptersDir(bookId).deleteRecursively()
     }
 
+    suspend fun copyBookFile(sourceFile: File, bookId: Long): File = withContext(Dispatchers.IO) {
+        val destFile = getBookFile(bookId)
+        sourceFile.inputStream().use { input ->
+            destFile.outputStream().use { output ->
+                input.copyTo(output, bufferSize = 8192)
+            }
+        }
+        destFile
+    }
+
     suspend fun computeFileHash(file: File): String = withContext(Dispatchers.IO) {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->

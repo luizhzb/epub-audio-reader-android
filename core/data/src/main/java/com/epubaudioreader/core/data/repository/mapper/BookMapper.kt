@@ -1,6 +1,6 @@
 package com.epubaudioreader.core.data.repository.mapper
 
-import com.epubaudioreader.core.data.local.database.BookEntity
+import com.epubaudioreader.core.data.local.database.entity.BookEntity
 import com.epubaudioreader.core.domain.model.Book
 import javax.inject.Inject
 
@@ -13,16 +13,16 @@ class BookMapper @Inject constructor() {
         language = entity.language,
         identifier = entity.identifier,
         description = entity.description,
-        coverPath = entity.coverPath,
+        coverImagePath = entity.coverImagePath,
         filePath = entity.filePath,
+        importDate = entity.importDate,
+        lastReadDate = entity.lastReadDate,
         totalChapters = entity.totalChapters,
         totalChars = entity.totalChars,
         fileSize = entity.fileSize,
         hash = entity.hash,
         lastReadChapterId = entity.lastReadChapterId,
-        lastReadPosition = entity.lastReadPosition,
-        lastReadAt = entity.lastReadAt,
-        addedAt = entity.addedAt
+        lastReadPosition = entity.lastReadPosition
     )
 
     fun toEntity(domain: Book): BookEntity = BookEntity(
@@ -32,15 +32,15 @@ class BookMapper @Inject constructor() {
         language = domain.language,
         identifier = domain.identifier,
         description = domain.description,
-        coverPath = domain.coverPath,
+        coverImagePath = domain.coverImagePath,
         filePath = domain.filePath,
+        importDate = domain.importDate,
+        lastReadDate = domain.lastReadDate,
         totalChapters = domain.totalChapters,
         totalChars = domain.totalChars,
         fileSize = domain.fileSize,
         hash = domain.hash,
         lastReadChapterId = domain.lastReadChapterId,
-        lastReadPosition = domain.lastReadPosition,
-        lastReadAt = domain.lastReadAt,
-        addedAt = domain.addedAt
+        lastReadPosition = domain.lastReadPosition
     )
 }

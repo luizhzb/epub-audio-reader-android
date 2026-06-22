@@ -3,7 +3,7 @@ package com.epubaudioreader.ui.screens.bookdetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.epubaudioreader.core.domain.usecase.GetBookWithChaptersUseCase
+import com.epubaudioreader.core.domain.usecase.reader.GetBookWithChaptersUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,11 +24,11 @@ class BookDetailViewModel @Inject constructor(
 
     fun loadBook(bookId: Long) {
         getBookWithChaptersUseCase(bookId)
-            .onEach { result ->
+            .onEach { (book, chapters) ->
                 _uiState.update {
                     it.copy(
-                        book = result.book,
-                        chapters = result.chapters,
+                        book = book,
+                        chapters = chapters,
                         isLoading = false
                     )
                 }

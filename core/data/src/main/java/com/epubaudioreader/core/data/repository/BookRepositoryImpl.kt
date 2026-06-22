@@ -1,10 +1,10 @@
 package com.epubaudioreader.core.data.repository
 
-import com.epubaudioreader.core.common.DispatcherProvider
-import com.epubaudioreader.core.data.local.database.BookDao
-import com.epubaudioreader.core.data.local.database.BookEntity
-import com.epubaudioreader.core.data.local.database.ChapterDao
-import com.epubaudioreader.core.data.local.database.ChapterEntity
+import com.epubaudioreader.core.common.dispatcher.DispatcherProvider
+import com.epubaudioreader.core.data.local.database.dao.BookDao
+import com.epubaudioreader.core.data.local.database.entity.BookEntity
+import com.epubaudioreader.core.data.local.database.dao.ChapterDao
+import com.epubaudioreader.core.data.local.database.entity.ChapterEntity
 import com.epubaudioreader.core.data.epub.extractor.ChapterExtractor
 import com.epubaudioreader.core.data.epub.extractor.CoverExtractor
 import com.epubaudioreader.core.data.epub.parser.EpubParser
@@ -12,7 +12,7 @@ import com.epubaudioreader.core.data.repository.mapper.BookMapper
 import com.epubaudioreader.core.data.repository.mapper.ChapterMapper
 import com.epubaudioreader.core.data.local.storage.EpubStorageManager
 import com.epubaudioreader.core.domain.model.Book
-import com.epubaudioreader.core.domain.model.Result
+import com.epubaudioreader.core.common.result.Result
 import com.epubaudioreader.core.domain.repository.BookRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -149,7 +149,7 @@ class BookRepositoryImpl @Inject constructor(
                 val finalBookEntity = initialBookEntity.copy(
                     id = bookId,
                     filePath = storedFile.absolutePath,
-                    coverPath = coverPath,
+                    coverImagePath = coverPath,
                     totalChars = totalChars
                 )
                 bookDao.updateBook(finalBookEntity)
@@ -170,8 +170,8 @@ class BookRepositoryImpl @Inject constructor(
                     ?: return@withContext Result.Error(
                         IllegalStateException("Livro não encontrado")
                     )
-                storageManager.deleteBookFiles(id)
                 bookDao.deleteBook(book)
+                storageManager.deleteBookFiles(id)
                 Result.Success(Unit)
             } catch (e: Exception) {
                 Result.Error(e)

@@ -1,13 +1,15 @@
 package com.epubaudioreader.ui.screens.library
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.domain.model.ImportProgress
-import com.epubaudioreader.core.domain.usecase.DeleteBookUseCase
-import com.epubaudioreader.core.domain.usecase.GetBooksUseCase
-import com.epubaudioreader.core.domain.usecase.ImportBookUseCase
+import com.epubaudioreader.core.domain.usecase.library.DeleteBookUseCase
+import com.epubaudioreader.core.domain.usecase.library.GetBooksUseCase
+import com.epubaudioreader.core.domain.usecase.library.ImportBookUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +22,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val getBooksUseCase: GetBooksUseCase,
     private val importBookUseCase: ImportBookUseCase,
     private val deleteBookUseCase: DeleteBookUseCase
@@ -45,22 +48,19 @@ class LibraryViewModel @Inject constructor(
 
     fun importBook(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(importProgress = ImportProgress.Scanning) }
+            _uiState.update { it.copy(importProgress = ImportProgress.Importing("Importando...", 0)) }
             try {
-                importBookUseCase(uri.toString())
-                    .collect { progress ->
-                        _uiState.update { it.copy(importProgress = progress) }
-                        if (progress is ImportProgress.Success || progress is ImportProgress.Error) {
-                            kotlinx.coroutines.delay(2000)
-                            _uiState.update { it.copy(importProgress = ImportProgress.Idle) }
-                        }
+                val fileSize = context.contentResolver.openFileDescriptor(uri, "r")?.statSize ?: 0L
+                when (val result = importBookUseCase(uri.toString(), fileSize)) {
+                    is com.epubaudioreader.core.common.result.Result.Success -> {
+                        _uiState.update { it.copy(importProgress = ImportProgress.Success(result.data.id)) }
                     }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(importProgress = ImportProgress.Error(e.message ?: "Erro desconhecido"))
+                    is com.epubaudioreader.core.common.result.Result.Error -> {
+                        _uiState.update { it.copy(importProgress = ImportProgress.Error(result.message)) }
+                    }
                 }
-                kotlinx.coroutines.delay(2000)
-                _uiState.update { it.copy(importProgress = ImportProgress.Idle) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(importProgress = ImportProgress.Error(e.message ?: "Erro")) }
             }
         }
     }

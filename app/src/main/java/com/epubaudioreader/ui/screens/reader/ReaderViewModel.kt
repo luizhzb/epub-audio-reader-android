@@ -2,8 +2,8 @@ package com.epubaudioreader.ui.screens.reader
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.epubaudioreader.core.domain.usecase.GetChapterContentUseCase
-import com.epubaudioreader.core.domain.usecase.SaveProgressUseCase
+import com.epubaudioreader.core.domain.usecase.reader.GetChapterContentUseCase
+import com.epubaudioreader.core.domain.usecase.reader.SaveProgressUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
@@ -29,6 +29,7 @@ class ReaderViewModel @Inject constructor(
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     private var currentBookId: Long = 0L
+    private var currentChapterId: Long = 0L
 
     private val progressFlow = MutableStateFlow<Triple<Long, Long, Int>?>(null)
 
@@ -46,6 +47,7 @@ class ReaderViewModel @Inject constructor(
 
     fun loadChapter(bookId: Long, chapterId: Long) {
         currentBookId = bookId
+        currentChapterId = chapterId
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
@@ -81,11 +83,8 @@ class ReaderViewModel @Inject constructor(
 
     fun onParagraphVisible(index: Int) {
         _uiState.update { it.copy(currentParagraphIndex = index) }
-        val chapterTitle = _uiState.value.chapterTitle
-        // Simple mapping - in real app would pass chapterId properly
-        val chapterId = _uiState.value.paragraphs.hashCode().toLong()
-        if (currentBookId != 0L) {
-            progressFlow.value = Triple(currentBookId, chapterId, index)
+        if (currentBookId != 0L && currentChapterId != 0L) {
+            progressFlow.value = Triple(currentBookId, currentChapterId, index)
         }
     }
 

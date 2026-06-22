@@ -78,7 +78,7 @@ class TextExtractor @Inject constructor() {
                             val text = parser.text ?: ""
                             // Decode HTML entities and normalize whitespace
                             val decoded = decodeHtmlEntities(text)
-                            val normalized = decoded.replace(Regex("\s+"), " ")
+                            val normalized = decoded.replace("""\s+""".toRegex(), " ")
                             if (normalized.isNotBlank()) {
                                 if (result.isNotEmpty() && !lastWasBlock && result.last() != ' ') {
                                     result.append(" ")
@@ -117,7 +117,7 @@ class TextExtractor @Inject constructor() {
             .replace(Regex("<script[^>]*>.*?</script>", RegexOption.DOT_MATCHES_ALL), "")
             .replace(Regex("<style[^>]*>.*?</style>", RegexOption.DOT_MATCHES_ALL), "")
             .replace(Regex("<[^>]+>"), " ")
-            .replace(Regex("\s+"), " ")
+            .replace("""\s+""".toRegex(), " ")
             .let { decodeHtmlEntities(it) }
             .trim()
     }

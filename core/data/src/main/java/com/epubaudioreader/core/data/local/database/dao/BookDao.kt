@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Update
 import com.epubaudioreader.core.data.local.database.entity.BookEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -33,4 +34,10 @@ interface BookDao {
 
     @Query("SELECT id FROM books WHERE filePath = :filePath LIMIT 1")
     suspend fun findBookByFilePath(filePath: String): Long?
+
+    @Query("SELECT id FROM books WHERE hash = :hash LIMIT 1")
+    suspend fun findBookByHash(hash: String): Long?
+
+    @Update
+    suspend fun updateBook(book: BookEntity)
 }

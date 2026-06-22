@@ -137,10 +137,10 @@ fun BookDetailScreen(
                             text = book.title,
                             style = MaterialTheme.typography.headlineSmall
                         )
-                        if (book.author.isNotBlank()) {
+                        if (book.authors.isNotBlank()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = book.author,
+                                text = book.authors,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

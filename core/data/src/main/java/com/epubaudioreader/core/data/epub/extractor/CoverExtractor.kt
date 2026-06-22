@@ -58,8 +58,7 @@ class CoverExtractor @Inject constructor() {
     }
 
     private fun findCoverBytes(parsedEpub: ParsedEpub): ByteArray? {
-        val zip = ZipFile(parsedEpub.bookFile)
-        try {
+        ZipFile(parsedEpub.bookFile).use { zip ->
             // Level 1: meta name="cover" -> find item by id in manifest
             val coverItemId = findCoverMetaItemId(parsedEpub)
             if (coverItemId != null) {
@@ -112,8 +111,6 @@ class CoverExtractor @Inject constructor() {
             }
 
             return null
-        } finally {
-            zip.close()
         }
     }
 

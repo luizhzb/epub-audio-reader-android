@@ -1,7 +1,7 @@
 package com.epubaudioreader.di
 
-import com.epubaudioreader.common.di.DefaultDispatcherProvider
-import com.epubaudioreader.common.di.DispatcherProvider
+import com.epubaudioreader.core.common.dispatcher.DefaultDispatcherProvider
+import com.epubaudioreader.core.common.dispatcher.DispatcherProvider
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
