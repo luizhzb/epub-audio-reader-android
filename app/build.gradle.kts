@@ -35,6 +35,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.documentfile)
     implementation(libs.bundles.hilt)
+    implementation(libs.coil.compose)
     ksp(libs.hilt.compiler)
     implementation(libs.coroutines.android)
 }
