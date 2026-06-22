@@ -2,8 +2,8 @@ package com.epubaudioreader.ui.screens.reader
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.epubaudioreader.domain.usecase.GetChapterContentUseCase
-import com.epubaudioreader.domain.usecase.SaveProgressUseCase
+import com.epubaudioreader.core.domain.usecase.GetChapterContentUseCase
+import com.epubaudioreader.core.domain.usecase.SaveProgressUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay

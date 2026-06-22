@@ -37,8 +37,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.epubaudioreader.R
-import com.epubaudioreader.domain.model.Book
-import com.epubaudioreader.domain.model.ImportProgress
+import com.epubaudioreader.core.domain.model.Book
+import com.epubaudioreader.core.domain.model.ImportProgress
 import com.epubaudioreader.ui.components.BookCard
 import com.epubaudioreader.ui.components.EmptyState
 import com.epubaudioreader.ui.components.ImportFab

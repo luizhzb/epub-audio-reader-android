@@ -1,6 +1,6 @@
 package com.epubaudioreader.core.data.repository.mapper
 
-import com.epubaudioreader.core.data.database.BookEntity
+import com.epubaudioreader.core.data.local.database.BookEntity
 import com.epubaudioreader.core.domain.model.Book
 import javax.inject.Inject
 

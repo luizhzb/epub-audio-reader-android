@@ -1,9 +1,9 @@
 package com.epubaudioreader.core.data.repository
 
 import com.epubaudioreader.core.common.DispatcherProvider
-import com.epubaudioreader.core.data.database.ChapterDao
+import com.epubaudioreader.core.data.local.database.ChapterDao
 import com.epubaudioreader.core.data.repository.mapper.ChapterMapper
-import com.epubaudioreader.core.data.storage.EpubStorageManager
+import com.epubaudioreader.core.data.local.storage.EpubStorageManager
 import com.epubaudioreader.core.domain.model.Chapter
 import com.epubaudioreader.core.domain.model.ChapterContent
 import com.epubaudioreader.core.domain.repository.ChapterRepository

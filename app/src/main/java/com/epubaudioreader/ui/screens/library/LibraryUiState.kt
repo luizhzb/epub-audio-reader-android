@@ -1,7 +1,7 @@
 package com.epubaudioreader.ui.screens.library
 
-import com.epubaudioreader.domain.model.Book
-import com.epubaudioreader.domain.model.ImportProgress
+import com.epubaudioreader.core.domain.model.Book
+import com.epubaudioreader.core.domain.model.ImportProgress
 
 data class LibraryUiState(
     val books: List<Book> = emptyList(),

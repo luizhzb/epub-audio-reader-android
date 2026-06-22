@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.epubaudioreader.R
-import com.epubaudioreader.domain.model.Chapter
+import com.epubaudioreader.core.domain.model.Chapter
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)

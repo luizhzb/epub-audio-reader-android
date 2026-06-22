@@ -1,7 +1,7 @@
 package com.epubaudioreader.ui.screens.bookdetail
 
-import com.epubaudioreader.domain.model.Book
-import com.epubaudioreader.domain.model.Chapter
+import com.epubaudioreader.core.domain.model.Book
+import com.epubaudioreader.core.domain.model.Chapter
 
 data class BookDetailUiState(
     val book: Book? = null,

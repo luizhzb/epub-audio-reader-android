@@ -3,7 +3,7 @@ package com.epubaudioreader.ui.screens.bookdetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.epubaudioreader.domain.usecase.GetBookWithChaptersUseCase
+import com.epubaudioreader.core.domain.usecase.GetBookWithChaptersUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

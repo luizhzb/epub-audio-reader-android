@@ -1,16 +1,16 @@
 package com.epubaudioreader.core.data.repository
 
 import com.epubaudioreader.core.common.DispatcherProvider
-import com.epubaudioreader.core.data.database.BookDao
-import com.epubaudioreader.core.data.database.BookEntity
-import com.epubaudioreader.core.data.database.ChapterDao
-import com.epubaudioreader.core.data.database.ChapterEntity
+import com.epubaudioreader.core.data.local.database.BookDao
+import com.epubaudioreader.core.data.local.database.BookEntity
+import com.epubaudioreader.core.data.local.database.ChapterDao
+import com.epubaudioreader.core.data.local.database.ChapterEntity
 import com.epubaudioreader.core.data.epub.extractor.ChapterExtractor
 import com.epubaudioreader.core.data.epub.extractor.CoverExtractor
 import com.epubaudioreader.core.data.epub.parser.EpubParser
 import com.epubaudioreader.core.data.repository.mapper.BookMapper
 import com.epubaudioreader.core.data.repository.mapper.ChapterMapper
-import com.epubaudioreader.core.data.storage.EpubStorageManager
+import com.epubaudioreader.core.data.local.storage.EpubStorageManager
 import com.epubaudioreader.core.domain.model.Book
 import com.epubaudioreader.core.domain.model.Result
 import com.epubaudioreader.core.domain.repository.BookRepository

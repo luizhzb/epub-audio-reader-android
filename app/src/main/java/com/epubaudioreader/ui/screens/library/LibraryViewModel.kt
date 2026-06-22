@@ -3,10 +3,10 @@ package com.epubaudioreader.ui.screens.library
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.epubaudioreader.domain.model.ImportProgress
-import com.epubaudioreader.domain.usecase.DeleteBookUseCase
-import com.epubaudioreader.domain.usecase.GetBooksUseCase
-import com.epubaudioreader.domain.usecase.ImportBookUseCase
+import com.epubaudioreader.core.domain.model.ImportProgress
+import com.epubaudioreader.core.domain.usecase.DeleteBookUseCase
+import com.epubaudioreader.core.domain.usecase.GetBooksUseCase
+import com.epubaudioreader.core.domain.usecase.ImportBookUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,7 +65,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun confirmDelete(book: com.epubaudioreader.domain.model.Book) {
+    fun confirmDelete(book: com.epubaudioreader.core.domain.model.Book) {
         _uiState.update { it.copy(bookToDelete = book) }
     }
 
