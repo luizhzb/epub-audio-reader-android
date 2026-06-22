@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">EPUB Audio Reader</string>
+    <string name="library_title">Biblioteca</string>
+    <string name="empty_library">Nenhum livro importado</string>
+    <string name="import_book">Importar EPUB</string>
+    <string name="chapters_title">Capitulos</string>
+    <string name="delete_book">Excluir</string>
+    <string name="confirm_delete">Deseja excluir este livro?</string>
+    <string name="yes">Sim</string>
+    <string name="no">Nao</string>
+    <string name="book_cover_desc">Capa do livro</string>
+    <string name="back">Voltar</string>
+    <string name="import_progress">Importando…</string>
+    <string name="total_chapters">%d capitulos</string>
+    <string name="unknown_author">Autor desconhecido</string>
+    <string name="chapter_number">Capitulo %d</string>
+</resources>
