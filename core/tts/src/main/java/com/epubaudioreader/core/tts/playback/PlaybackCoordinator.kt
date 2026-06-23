@@ -5,6 +5,7 @@ import com.epubaudioreader.core.tts.pipeline.AudioSegment
 import com.epubaudioreader.core.tts.pipeline.AudioSynthesisPipeline
 import com.epubaudioreader.core.tts.segmentation.SmartTextSegmenter
 import com.epubaudioreader.core.tts.segmentation.TextSegment
+import com.epubaudioreader.core.tts.pipeline.SegmentStatus
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -92,7 +93,7 @@ class PlaybackCoordinator @Inject constructor(
                 // Aguardar primeiro segmento ficar pronto (com timeout)
                 var waitCount = 0
                 while (isActive &&
-                    pipeline.getAudio(startIndex)?.status != AudioSegment.SegmentStatus.READY &&
+                    pipeline.getAudio(startIndex)?.status != SegmentStatus.READY &&
                     waitCount < MAX_WAIT_CYCLES
                 ) {
                     delay(WAIT_DELAY_MS)
@@ -171,7 +172,7 @@ class PlaybackCoordinator @Inject constructor(
                 // Aguardar segmento ficar pronto
                 var waitCount = 0
                 while (isActive &&
-                    pipeline.getAudio(index)?.status != AudioSegment.SegmentStatus.READY &&
+                    pipeline.getAudio(index)?.status != SegmentStatus.READY &&
                     waitCount < MAX_WAIT_CYCLES
                 ) {
                     delay(WAIT_DELAY_MS)
