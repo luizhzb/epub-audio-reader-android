@@ -53,6 +53,7 @@ fun TtsTestScreen(
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorDialogMessage by remember { mutableStateOf("") }
 
+    // Observa mudancas no erro para mostrar dialog
     LaunchedEffect(uiState.error) {
         uiState.error?.let { error ->
             errorDialogMessage = error
@@ -105,9 +106,6 @@ fun TtsTestScreen(
 
                 ModelStatus.COPYING -> {
                     CopyingSection(progress = uiState.copyProgress)
-                }
-                ModelStatus.INITIALIZING -> {
-                    InitializingSection()
                 }
 
                 ModelStatus.INITIALIZING -> {
@@ -277,6 +275,14 @@ private fun InitializingSection(
     }
 }
 
+/**
+ * Secao de teste TTS.
+ *
+ * Correcoes verificadas:
+ * - Botao "Testar Voz" desabilitado quando isPlaying = true (evita duplo-click)
+ * - Botao desabilitado quando texto esta em branco
+ * - Mostra loading indicator enquanto isPlaying = true
+ */
 @Composable
 private fun TestSection(
     text: String,
