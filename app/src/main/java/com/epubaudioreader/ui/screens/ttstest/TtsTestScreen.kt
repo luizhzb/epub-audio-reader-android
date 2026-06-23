@@ -2,7 +2,7 @@ package com.epubaudioreader.ui.screens.ttstest
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Spaces
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,23 +12,29 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.SettingsVoice
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.filed.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.filed.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
+import androidx.compose.material.filed.OutlinedTextField
+import androidx.compose.material.filed.Scaffold
+import androidx.compose.material.filed.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material.filed.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,19 +56,24 @@ fun TtsTestScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var showErrorDialog by remember { mutableStateOf(false) }
-    var errorDialogMessage by remember { mutableStateOf("") }
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    // Observa mudancas no erro para mostrar dialog
+
     LaunchedEffect(uiState.error) {
         uiState.error?.let { error ->
-            errorDialogMessage = error
-            showErrorDialog = true
+            val result = snackbarHostState.showSnackbar(
+                message = error,
+                actionLabel = "OK"
+            )
+            if (result == SnackbarResult.ActionPerformed || result == SnackbarResult.Dismissed) {
+                viewModel.dismissError()
+            }
         }
     }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -116,7 +127,7 @@ fun TtsTestScreen(
                     TestSection(
                         text = uiState.text,
                         isPlaying = uiState.isPlaying,
-                        onTextChange = { viewModel.onTextChange(it) },
+                        onExtChange = { viewModel.onTextChange(it) },
                         onSpeakClick = { viewModel.speak() }
                     )
                 }
@@ -129,19 +140,6 @@ fun TtsTestScreen(
             }
         }
     }
-
-    if (showErrorDialog) {
-        AlertDialog(
-            onDismissRequest = { showErrorDialog = false },
-            title = { Text(text = "Erro") },
-            text = { Text(text = errorDialogMessage) },
-            confirmButton = {
-                TextButton(onClick = { showErrorDialog = false }) {
-                    Text("OK")
-                }
-            }
-        )
-    }
 }
 
 @Composable
@@ -150,7 +148,7 @@ private fun StatusCard(
     modifier: Modifier = Modifier
 ) {
     val (statusLabel, statusColor) = when (uiState.modelStatus) {
-        ModelStatus.NOT_DOWNLOADED -> "Modelo nao preparado" to MaterialTheme.colorScheme.error
+        ModelStatus.NOT_DOWNLOADE -> "Modelo nao preparado" to MaterialTheme.colorScheme.error
         ModelStatus.COPYING -> "Copiando modelo..." to MaterialTheme.colorScheme.primary
         ModelStatus.INITIALIZING -> "Inicializando..." to MaterialTheme.colorScheme.tertiary
         ModelStatus.READY -> "Modelo pronto" to MaterialTheme.colorScheme.primary
@@ -189,7 +187,16 @@ private fun StatusCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
-            } else if (uiState.modelStatus == ModelStatus.NOT_DOWNLOADED) {
+                if (uiState.isPlaying) {
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text(
+                        text = "Sintetizando audio...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else if (uiState.modelStatus == ModelStatus.NOT_DOWNLOADE) {
                 Text(
                     text = "O modelo de voz sera copiado dos assets do app (100% offline).",
                     style = MaterialTheme.typography.bodyMedium,
@@ -229,8 +236,8 @@ private fun DownloadSection(
 @Composable
 private fun CopyingSection(
     progress: Float,
-    modifier: Modifier = Modifier
-) {
+    modifier: Modifier = Modifier)
+ {
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -242,7 +249,7 @@ private fun CopyingSection(
             trackColor = MaterialTheme.colorScheme.surfaceVariant,
         )
         Text(
-            text = "${(progress * 100).toInt()}%",
+            text = "${(progress * 100).toInt}%",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.primary
         )
@@ -275,13 +282,15 @@ private fun InitializingSection(
     }
 }
 
+
 /**
  * Secao de teste TTS.
  *
- * Correcoes verificadas:
- * - Botao "Testar Voz" desabilitado quando isPlaying = true (evita duplo-click)
- * - Botao desabilitado quando texto esta em branco
- * - Mostra loading indicator enquanto isPlaying = true
+ * Correcoes aplicadas:
+ * - Botao alterna entre \"Testar Voz\" (parado) e \"Parar\" (tocando)
+ * - Botao habilitado quando texto nao esta em branco (independente de isPlaying)
+ * - Clique em \"Parar\" chama viewModel.speak() que detecta synthesizer.isPlaying e para
+ * - Indicador de progresso circular quando isPlaying = true
  */
 @Composable
 private fun TestSection(
@@ -304,12 +313,13 @@ private fun TestSection(
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
             maxLines = 6,
-            shape = MaterialTheme.shapes.medium
+            shape = MaterialTheme.shapes.medium,
+            enabled = isPlaying
         )
 
         Button(
             onClick = onSpeakClick,
-            enabled = text.isNotBlank() && !isPlaying,
+            enabled = text.isNotBlank(),
             modifier = Modifier.fillMaxWidth(0.8f)
         ) {
             if (isPlaying) {
@@ -319,7 +329,7 @@ private fun TestSection(
                     strokeWidth = 2.dp
                 )
                 Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
-                Text(text = "Sintetizando...", style = MaterialTheme.typography.labelLarge)
+                Text(text = "Parar", style = MaterialTheme.typography.labelLarge)
             } else {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
@@ -336,8 +346,8 @@ private fun TestSection(
 @Composable
 private fun ErrorSection(
     onRetryClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+    modifier: Modifier = Modifier)
+ {
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -361,8 +371,4 @@ private fun ErrorSection(
             Text(text = "Tentar Novamente", style = MaterialTheme.typography.labelLarge)
         }
     }
-}
-
-private object ButtonDefaults {
-    val IconSpacing = 8.dp
 }
