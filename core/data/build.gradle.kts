@@ -27,6 +27,7 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.bundles.coroutines)
     implementation(libs.androidx.documentfile)
+    implementation(libs.jsoup)
 
     testImplementation(libs.junit)
 }
