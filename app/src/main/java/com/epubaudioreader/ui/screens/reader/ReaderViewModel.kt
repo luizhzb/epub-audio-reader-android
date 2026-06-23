@@ -67,6 +67,9 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun loadChapter(bookId: Long, chapterId: Long) {
+        // Parar TTS ao mudar de capitulo
+        playbackCoordinator.stop()
+
         currentBookId = bookId
         currentChapterId = chapterId
         viewModelScope.launch {
