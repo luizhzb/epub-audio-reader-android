@@ -15,6 +15,7 @@ android {
 
 dependencies {
     implementation(project(":core:common"))
+    implementation(project(":core:domain"))
     implementation(libs.bundles.hilt)
     ksp(libs.hilt.compiler)
     implementation(libs.bundles.coroutines)
