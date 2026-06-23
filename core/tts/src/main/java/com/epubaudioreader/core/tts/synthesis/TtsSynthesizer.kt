@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.media.AudioTrack
 import android.util.Log
 import com.epubaudioreader.core.tts.engine.TtsEngine
+import com.k2fsa.sherpa.onnx.GenerationConfig
 import kotlinx.coroutines.*
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,154 +17,113 @@ class TtsSynthesizer @Inject constructor(
 ) {
     companion object {
         private const val TAG = "TtsSynthesizer"
-        private const val SAMPLE_RATE_FALLBACK = 22050
     }
 
-    private var audioTrack: AudioTrack? = null
+    private var track: AudioTrack? = null
+    private var stopped: Boolean = true
     private val lock = Object()
 
     val isPlaying: Boolean
-        get() = synchronized(lock) {
-            audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING
+        get() = synchronized(lock) { !stopped }
+
+    fun initAudioTrack() {
+        val tts = ttsEngine.getTts() ?: throw IllegalStateException("TTS nao inicializado")
+        val sampleRate = tts.sampleRate()
+        val bufLength = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_FLOAT
+        )
+        Log.i(TAG, "AudioTrack sampleRate=$sampleRate bufLength=$bufLength")
+
+        if (bufLength <= 0) {
+            throw IllegalStateException("Formato PCM_FLOAT nao suportado pelo dispositivo (bufLength=$bufLength)")
         }
 
-    private fun floatToShortArray(floats: FloatArray): ShortArray {
-        return ShortArray(floats.size) { i ->
-            val clamped = floats[i].coerceIn(-1.0f, 1.0f)
-            (clamped * 32767).toInt().toShort()
+        val attr = AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .build()
+
+        val format = AudioFormat.Builder()
+            .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+            .setSampleRate(sampleRate)
+            .build()
+
+        synchronized(lock) {
+            track = AudioTrack(
+                attr, format, bufLength,
+                AudioTrack.MODE_STREAM,
+                AudioManager.AUDIO_SESSION_ID_GENERATE
+            )
         }
     }
 
-    suspend fun speak(text: String, onComplete: (() -> Unit)? = null): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                if (!ttsEngine.isInitialized) {
-                    return@withContext Result.failure(IllegalStateException("TTS engine nao inicializado"))
-                }
-                if (text.isBlank()) {
-                    return@withContext Result.success(Unit)
-                }
+    fun startPlayback() {
+        synchronized(lock) {
+            track?.play()
+        }
+    }
 
-                stopInternal()
-
-                Log.d(TAG, "Sintetizando texto: ${text.take(30)}...")
-                val samples = ttsEngine.synthesize(text)
-
-                if (samples == null || samples.isEmpty()) {
-                    return@withContext Result.failure(IllegalStateException("Sintese falhou ou retornou vazio"))
-                }
-
-                Log.d(TAG, "Audio sintetizado: ${samples.size} samples")
-
-                // Converter para PCM 16bit
-                val pcmData = floatToShortArray(samples)
-                val sampleRate = if (ttsEngine.sampleRate > 0) ttsEngine.sampleRate else SAMPLE_RATE_FALLBACK
-
-                playPcm16(pcmData, sampleRate, onComplete)
-                Result.success(Unit)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Erro em speak: ${e.message}", e)
-                Result.failure(e)
+    /**
+     * Callback chamado pelo JNI do Sherpa-ONNX durante a geracao.
+     * Retorna 1 para continuar, 0 para parar.
+     */
+    private fun callback(samples: FloatArray): Int {
+        synchronized(lock) {
+            if (!stopped) {
+                track?.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                return 1
+            } else {
+                track?.stop()
+                return 0
             }
         }
+    }
 
-    private suspend fun playPcm16(pcmData: ShortArray, sampleRate: Int, onComplete: (() -> Unit)?) {
-        val minBuffer = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
+    fun speak(text: String, sid: Int = 0, speed: Float = 1.0f, onComplete: (() -> Unit)? = null): Result<Unit> {
+        return try {
+            val tts = ttsEngine.getTts() ?: return Result.failure(IllegalStateException("TTS nao inicializado"))
+            if (text.isBlank()) return Result.success(Unit)
 
-        if (minBuffer <= 0) {
-            Log.e(TAG, "getMinBufferSize retornou valor invalido: $minBuffer")
-            throw IllegalStateException("Formato de audio nao suportado pelo dispositivo")
-        }
+            // Resetar AudioTrack entre geracoes (como no oficial)
+            synchronized(lock) {
+                track?.pause()
+                track?.flush()
+                track?.play()
+                stopped = false
+            }
 
-        val bufferSize = minBuffer.coerceAtLeast(pcmData.size * 2)
-        Log.d(TAG, "AudioTrack bufferSize=$bufferSize, sampleRate=$sampleRate")
+            // Gerar com callback (thread de background)
+            val genConfig = GenerationConfig(sid = sid, speed = speed)
+            tts.generateWithConfigAndCallback(
+                text = text,
+                config = genConfig,
+                callback = this::callback
+            )
 
-        val track = AudioTrack(
-            AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build(),
-            AudioFormat.Builder()
-                .setSampleRate(sampleRate)
-                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                .build(),
-            bufferSize,
-            AudioTrack.MODE_STATIC,
-            AudioManager.AUDIO_SESSION_ID_GENERATE
-        )
-
-        if (track.state != AudioTrack.STATE_INITIALIZED) {
-            Log.e(TAG, "AudioTrack nao foi inicializado! state=${track.state}")
-            track.release()
-            throw IllegalStateException("AudioTrack: falha na inicializacao (state=${track.state})")
-        }
-
-        synchronized(lock) {
-            audioTrack = track
-        }
-
-        val written = track.write(pcmData, 0, pcmData.size)
-        if (written < 0) {
-            Log.e(TAG, "AudioTrack write falhou: $written")
-            stopInternal()
-            throw IllegalStateException("AudioTrack write falhou: $written")
-        }
-
-        Log.d(TAG, "AudioTrack write OK: $written bytes")
-
-        try {
-            track.play()
-            Log.d(TAG, "AudioTrack play iniciado")
+            onComplete?.invoke()
+            Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "AudioTrack play falhou: ${e.message}")
-            stopInternal()
-            throw e
+            Log.e(TAG, "Erro em speak: ${e.message}", e)
+            Result.failure(e)
         }
-
-        // Aguardar playback terminar usando coroutine do caller
-        val playbackDurationMs = (pcmData.size * 1000L) / sampleRate
-        Log.d(TAG, "Aguardando playback: ~${playbackDurationMs}ms")
-        delay(playbackDurationMs + 200)
-
-        // Verificar se ainda esta tocando
-        var waitCount = 0
-        while (isPlaying && waitCount < 50) {
-            delay(100)
-            waitCount++
-        }
-
-        Log.d(TAG, "Playback finalizado")
-        onComplete?.invoke()
     }
 
     fun stop() {
-        stopInternal()
-    }
-
-    private fun stopInternal() {
         synchronized(lock) {
-            val track = audioTrack
-            audioTrack = null
-            if (track != null) {
-                try {
-                    if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                        track.stop()
-                    }
-                } catch (_: Exception) {}
-                try {
-                    track.release()
-                } catch (_: Exception) {}
-            }
+            stopped = true
+            try { track?.stop() } catch (_: Exception) {}
         }
     }
 
     fun release() {
-        stopInternal()
+        synchronized(lock) {
+            stopped = true
+            try { track?.stop() } catch (_: Exception) {}
+            try { track?.release() } catch (_: Exception) {}
+            track = null
+        }
     }
 }
