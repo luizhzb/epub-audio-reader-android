@@ -18,6 +18,6 @@ dependencies {
     implementation(libs.bundles.hilt)
     ksp(libs.hilt.compiler)
     implementation(libs.bundles.coroutines)
-    implementation(libs.android.x.core.ktx)
+    implementation(libs.androidx.core.ktx)
     implementation(libs.sherpa.onnx)
 }
