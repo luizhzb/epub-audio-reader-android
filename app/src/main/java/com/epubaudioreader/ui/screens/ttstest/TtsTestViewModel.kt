@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.tts.engine.TtsEngine
 import com.epubaudioreader.core.tts.model.ModelManager
 import com.epubaudioreader.core.tts.model.ModelState
-import com.epubaudioreader.core.tts.model.VoiceConfig
+import com.epubaudioreader.core.tts.model.DefaultVoiceConfigs
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -78,7 +78,7 @@ class TtsTestViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(error = null) }
             try {
-                modelManager.downloadModel(VoiceConfig.DEFAULT)
+                modelManager.downloadModel(DefaultVoiceConfigs.DEFAULT)
             } catch (e: Exception) {
                 _uiState.update { it.copy(modelStatus = ModelStatus.ERROR, error = e.message) }
             }
