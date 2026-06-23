@@ -1,9 +1,9 @@
 package com.epubaudioreader.core.tts.engine
 
+import android.content.Context
 import android.content.res.AssetManager
 import android.util.Log
 import com.k2fsa.sherpa.onnx.OfflineTts
-import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.getOfflineTtsConfig
 import java.io.File
 import java.io.FileOutputStream
@@ -11,11 +11,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
+class SherpaOnnxTtsEngine @Inject constructor(
+    private val context: Context
+) : TtsEngine {
 
     companion object {
         private const val TAG = "SherpaOnnxTtsEngine"
-        // Modelo: vits-piper-en_US-amy-low (exemplo oficial #2 do Sherpa-ONNX)
         private const val MODEL_DIR = "vits-piper-en_US-amy-low"
         private const val MODEL_NAME = "en_US-amy-low.onnx"
         private const val DATA_DIR = "vits-piper-en_US-amy-low/espeak-ng-data"
@@ -69,35 +70,28 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
     }
 
     private fun copyDataDir(assetManager: AssetManager): String {
-        try {
-            val externalDir = File(android.app.Application.getProcessName().let {
-                // Nao temos accesso ao context aqui, usar approach alternativo
-                // Na verdade precisamos do path - vamos usar uma abordagem diferente
-                "/sdcard/Android/data/com.epubaudioreader/files"
-            })
-            externalDir.mkdirs()
-
-            // Verificar se ja foi copiado
+        return try {
+            val externalDir = context.getExternalFilesDir(null) ?: context.filesDir
             val dataDirFile = File(externalDir, DATA_DIR)
+
             if (dataDirFile.exists() && dataDirFile.list()?.isNotEmpty() == true) {
                 Log.i(TAG, "espeak-ng-data ja copiado")
                 return "$externalDir/$DATA_DIR"
             }
 
-            // Copiar recursivamente
+            Log.i(TAG, "Copiando espeak-ng-data...")
             copyAssetsRecursively(assetManager, DATA_DIR, externalDir.absolutePath)
-            Log.i(TAG, "espeak-ng-data copiado para $externalDir/$DATA_DIR")
-            return "$externalDir/$DATA_DIR"
+            Log.i(TAG, "espeak-ng-data copiado")
+            "$externalDir/$DATA_DIR"
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao copiar dataDir: ${e.message}", e)
-            return "" // Retorna vazio, o modelo pode funcionar sem espeak-ng-data para alguns casos
+            Log.w(TAG, "Falha ao copiar espeak-ng-data: ${e.message}")
+            "" // Nao e fatal
         }
     }
 
     private fun copyAssetsRecursively(assetManager: AssetManager, path: String, destRoot: String) {
         val assets = assetManager.list(path) ?: return
         if (assets.isEmpty()) {
-            // Arquivo unico
             try {
                 val destFile = File(destRoot, path)
                 destFile.parentFile?.mkdirs()
@@ -110,7 +104,6 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
                 Log.w(TAG, "Falha ao copiar $path: ${e.message}")
             }
         } else {
-            // Diretorio
             val destDir = File(destRoot, path)
             destDir.mkdirs()
             for (asset in assets) {
