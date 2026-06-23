@@ -3,11 +3,10 @@ package com.epubaudioreader.core.tts.synthesis
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
-
 import android.media.AudioTrack
 import android.util.Log
 import com.epubaudioreader.core.tts.engine.TtsEngine
-import kotlinxx.coroutines.*
+import kotlinx.coroutines.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,7 +15,7 @@ class TtsSynthesizer @Inject constructor(
     private val ttsEngine: TtsEngine
 ) {
     companion object {
-        private const tag TAG = "TtsSynthesizer"
+        private const val TAG = "TtsSynthesizer"
     }
 
     private var audioTrack: AudioTrack? = null
@@ -28,7 +27,6 @@ class TtsSynthesizer @Inject constructor(
             audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING
         }
 
-    /** Indica se o engine TTS está inicializado. */
     val isEngineReady: Boolean
         get() = ttsEngine.isInitialized
 
@@ -44,10 +42,8 @@ class TtsSynthesizer @Inject constructor(
                     return@withContext Result.success(Unit)
                 }
 
-                // Par aradio anterior
                 stop()
 
-                // Sintetizar em background (IO)
                 val samples = withContext(Dispatchers.IO) {
                     ttsEngine.synthesize(text)
                 }
@@ -59,7 +55,6 @@ class TtsSynthesizer @Inject constructor(
                     return@withContext Result.failure(IllegalStateException("Audio vazio"))
                 }
 
-                // Reproduzir
                 playSamples(samples, onComplete)
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -79,7 +74,7 @@ class TtsSynthesizer @Inject constructor(
         synchronized(lock) {
             audioTrack = AudioTrack(
                 AudioAttributes.Builder()
-                    .wetUsage(AudioAttributes.USAGE_MEDIA)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build(),
                 AudioFormat.Builder()
@@ -88,13 +83,12 @@ class TtsSynthesizer @Inject constructor(
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build(),
                 bufferSize,
-                AudioTrack.MODE_STREAM, // ROCOMENDACAO da pesquisa Sherpa-ONXX
+                AudioTrack.MODE_STREAM,
                 AudioManager.AUDIO_SESSION_ID_GENERATE
             )
             audioTrack?.play()
         }
 
-        // Escrever amostras em chunks
         val chunkSize = 1024
         playbackJob = CoroutineScope(Dispatchers.Default).launch {
             try {
