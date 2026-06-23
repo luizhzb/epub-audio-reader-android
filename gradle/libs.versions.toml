@@ -16,7 +16,7 @@ ksp = "2.0.21-1.0.28"
 minSdk = "26"
 room = "2.6.1"
 commonsCompress = "1.26.1"
-sherpaOnnx = "1.10.28"
+sherpaOnnx = "1.13.3"
 targetSdk = "35"
 
 [libraries]
@@ -49,7 +49,7 @@ room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
-sherpa-onnx = { group = "com.github.k2-fsa.sherpa-onnx", name = "sherpa-onnx-android", version.ref = "sherpaOnnx" }
+sherpa-onnx = { group = "com.github.k2-fsa", name = "sherpa-onnx", version.ref = "sherpaOnnx" }
 
 [bundles]
 compose = ["compose-ui", "compose-ui-graphics", "compose-ui-tooling-preview", "compose-material3", "compose-material-icons-extended"]
