@@ -5,6 +5,7 @@ import android.content.res.AssetManager
 import android.util.Log
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.getOfflineTtsConfig
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
@@ -12,7 +13,7 @@ import javax.inject.Singleton
 
 @Singleton
 class SherpaOnnxTtsEngine @Inject constructor(
-    private val context: Context
+    @ApplicationContext private val context: Context
 ) : TtsEngine {
 
     companion object {
@@ -34,7 +35,6 @@ class SherpaOnnxTtsEngine @Inject constructor(
         return try {
             Log.i(TAG, "Inicializando TTS com modelo dos assets...")
 
-            // Copiar espeak-ng-data para external files (requerido pelo JNI)
             val dataDir = copyDataDir(assetManager)
 
             val config = getOfflineTtsConfig(
@@ -85,7 +85,7 @@ class SherpaOnnxTtsEngine @Inject constructor(
             "$externalDir/$DATA_DIR"
         } catch (e: Exception) {
             Log.w(TAG, "Falha ao copiar espeak-ng-data: ${e.message}")
-            "" // Nao e fatal
+            ""
         }
     }
 
