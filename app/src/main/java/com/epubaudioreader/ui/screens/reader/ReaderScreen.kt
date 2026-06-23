@@ -30,11 +30,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.epubaudioreader.R
-import androidx.compose.ui.res.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,12 +47,31 @@ fun ReaderScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
-    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(bookId, chapterId) {
         viewModel.loadChapter(bookId, chapterId)
     }
+
+    ReaderContent(
+        uiState = uiState,
+        onBackClick = onBackClick,
+        onToggleTts = { viewModel.toggleTts() },
+        onParagraphVisible = { viewModel.onParagraphVisible(it) },
+        modifier = modifier
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ReaderContent(
+    uiState: ReaderUiState,
+    onBackClick: () -> Unit,
+    onToggleTts: () -> Unit,
+    onParagraphVisible: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val listState = rememberLazyListState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val firstVisibleItemIndex by remember {
         derivedStateOf { listState.firstVisibleItemIndex }
@@ -59,7 +79,7 @@ fun ReaderScreen(
 
     LaunchedEffect(firstVisibleItemIndex) {
         if (firstVisibleItemIndex >= 0 && uiState.paragraphs.isNotEmpty()) {
-            viewModel.onParagraphVisible(firstVisibleItemIndex)
+            onParagraphVisible(firstVisibleItemIndex)
         }
     }
 
@@ -98,7 +118,7 @@ fun ReaderScreen(
         floatingActionButton = {
             if (uiState.paragraphs.isNotEmpty()) {
                 FloatingActionButton(
-                    onClick = { viewModel.toggleTts() }
+                    onClick = onToggleTts
                 ) {
                     Icon(
                         imageVector = if (uiState.isTtsPlaying) Icons.Filled.Stop else Icons.Filled.PlayArrow,
@@ -173,5 +193,49 @@ fun ReaderScreen(
                 }
             }
         }
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun ReaderContentPreview() {
+    MaterialTheme {
+        ReaderContent(
+            uiState = ReaderUiState(
+                chapterTitle = "Capitulo I",
+                paragraphs = listOf(
+                    "Era uma vez um livro muito interessante sobre audio e leitura.",
+                    "Este e o segundo paragrafo do capitulo, mostrando como o texto fica na tela.",
+                    "O TTS permite ouvir o conteudo enquanto acompanha a leitura visual."
+                ),
+                isLoading = false
+            ),
+            onBackClick = {},
+            onToggleTts = {},
+            onParagraphVisible = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun ReaderContentTtsPlayingPreview() {
+    MaterialTheme {
+        ReaderContent(
+            uiState = ReaderUiState(
+                chapterTitle = "Capitulo I",
+                paragraphs = listOf(
+                    "Primeiro paragrafo sendo lido em voz alta pelo TTS.",
+                    "Segundo paragrafo ainda nao foi alcancado.",
+                    "Terceiro paragrafo aguardando a leitura."
+                ),
+                isLoading = false,
+                isTtsPlaying = true,
+                currentParagraphIndex = 0
+            ),
+            onBackClick = {},
+            onToggleTts = {},
+            onParagraphVisible = {}
+        )
     }
 }

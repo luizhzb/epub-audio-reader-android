@@ -16,10 +16,31 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.epubaudioreader.core.domain.model.Book
 import java.io.File
+
+@Preview(showBackground = true)
+@Composable
+private fun BookCardPreview() {
+    MaterialTheme {
+        BookCard(
+            book = Book(
+                id = 1,
+                title = "Dom Casmurro",
+                authors = "Machado de Assis",
+                filePath = "",
+                totalChapters = 10,
+                totalChars = 50000,
+                fileSize = 1024,
+                hash = ""
+            ),
+            onClick = {}
+        )
+    }
+}
 
 @Composable
 fun BookCard(

@@ -1,10 +1,8 @@
 package com.epubaudioreader.ui.screens.bookdetail
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,10 +35,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.epubaudioreader.R
+import com.epubaudioreader.core.domain.model.Book
 import com.epubaudioreader.core.domain.model.Chapter
 import java.io.File
 
@@ -59,6 +59,22 @@ fun BookDetailScreen(
         viewModel.loadBook(bookId)
     }
 
+    BookDetailContent(
+        uiState = uiState,
+        onBackClick = onBackClick,
+        onChapterClick = onChapterClick,
+        modifier = modifier
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun BookDetailContent(
+    uiState: BookDetailUiState,
+    onBackClick: () -> Unit,
+    onChapterClick: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -100,7 +116,7 @@ fun BookDetailScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+                contentPadding = PaddingValues(16.dp)
             ) {
                 item {
                     Column(
@@ -235,6 +251,54 @@ private fun ChapterListItem(
                     )
                 }
             }
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+private fun BookDetailContentPreview() {
+    MaterialTheme {
+        BookDetailContent(
+            uiState = BookDetailUiState(
+                isLoading = false,
+                book = Book(
+                    id = 1,
+                    title = "Dom Casmurro",
+                    authors = "Machado de Assis",
+                    filePath = "",
+                    totalChapters = 3,
+                    totalChars = 50000,
+                    fileSize = 1024,
+                    hash = ""
+                ),
+                chapters = listOf(
+                    Chapter(
+                        id = 1,
+                        bookId = 1,
+                        title = "Capitulo I",
+                        orderIndex = 0,
+                        contentFilePath = "",
+                        charCount = 1000,
+                        paragraphCount = 10,
+                        spineIndex = 0,
+                        href = ""
+                    ),
+                    Chapter(
+                        id = 2,
+                        bookId = 1,
+                        title = "Capitulo II",
+                        orderIndex = 1,
+                        contentFilePath = "",
+                        charCount = 1200,
+                        paragraphCount = 12,
+                        spineIndex = 1,
+                        href = ""
+                    )
+                )
+            ),
+            onBackClick = {},
+            onChapterClick = {}
         )
     }
 }
