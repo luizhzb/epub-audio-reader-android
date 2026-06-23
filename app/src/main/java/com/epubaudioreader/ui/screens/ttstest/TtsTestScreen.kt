@@ -103,7 +103,7 @@ fun TtsTestScreen(
             StatusCard(uiState = uiState)
 
             when (uiState.modelStatus) {
-                ModelStatus.NOT_DOWNLOADED -> {
+                ModelStatus.NOT_LOADED -> {
                     DownloadSection(
                         onPrepareClick = { viewModel.prepareModel() }
                     )
@@ -113,7 +113,7 @@ fun TtsTestScreen(
                     CopyingSection(progress = uiState.copyProgress)
                 }
 
-                ModelStatus.INITIALIZING -> {
+                ModelStatus.LOADING -> {
                     InitializingSection()
                 }
 
@@ -142,9 +142,9 @@ private fun StatusCard(
     modifier: Modifier = Modifier
 ) {
     val (statusLabel, statusColor) = when (uiState.modelStatus) {
-        ModelStatus.NOT_DOWNLOADED -> "Modelo nao preparado" to MaterialTheme.colorScheme.error
+        ModelStatus.NOT_LOADED -> "Modelo nao preparado" to MaterialTheme.colorScheme.error
         ModelStatus.COPYING -> "Copiando modelo..." to MaterialTheme.colorScheme.primary
-        ModelStatus.INITIALIZING -> "Inicializando..." to MaterialTheme.colorScheme.tertiary
+        ModelStatus.LOADING -> "Inicializando..." to MaterialTheme.colorScheme.tertiary
         ModelStatus.READY -> "Modelo pronto" to MaterialTheme.colorScheme.primary
         ModelStatus.ERROR -> "Erro" to MaterialTheme.colorScheme.error
     }
@@ -190,7 +190,7 @@ private fun StatusCard(
                         textAlign = TextAlign.Center
                     )
                 }
-            } else if (uiState.modelStatus == ModelStatus.NOT_DOWNLOADED) {
+            } else if (uiState.modelStatus == ModelStatus.NOT_LOADED) {
                 Text(
                     text = "O modelo de voz sera copiado dos assets do app (100% offline).",
                     style = MaterialTheme.typography.bodyMedium,
