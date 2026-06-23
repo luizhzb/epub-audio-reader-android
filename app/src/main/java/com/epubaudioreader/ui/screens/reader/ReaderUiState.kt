@@ -7,6 +7,5 @@ data class ReaderUiState(
     val error: String? = null,
     val currentParagraphIndex: Int = 0,
     val isTtsPlaying: Boolean = false,
-    val isTtsPrepared: Boolean = false,
     val ttsError: String? = null
 )
