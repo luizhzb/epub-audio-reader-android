@@ -1,1 +1,23 @@
-cGx1Z2lucyB7CiAgICBhbGlhcyhsaWJzLnBsdWdpbnMuYW5kcm9pZC5saWJyYXJ5KQogICAgYWxpYXMobGlicy5wbHVnaW5zLmtvdGxpbi5hbmRyb2lkKQogICAgYWxpYXMobGlicy5wbHVnaW5zLmtzcCkKICAgIGFsaWFzKGxpYnMucGx1Z2lucy5oaWx0KQp9CgphbmRyb2lkIHsKICAgIG5hbWVzcGFjZSA9ICJjb20uZXB1YmF1ZGlvcmVhZGVyLmNvcmUudHRzIgogICAgY29tcGlsZVNkayA9IDM1CiAgICBkZWZhdWx0Q29uZmlnIHsgbWluU2RrID0gMjYgfQogICAgY29tcGlsZU9wdGlvbnMgeyBzb3VyY2VDb21wYXRpYmlsaXR5ID0gSmF2YVZlcnNpb24uVkVSU0lPTl8xNzsgdGFyZ2V0Q29tcGF0aWJpbGl0eSA9IEphdmFWZXJzaW9uLlZFUlNJT05fMTcgfQogICAga290bGluT3B0aW9ucyB7IGp2bVRhcmdldCA9ICIxNyIgfQp9CgpkZXBlbmRlbmNpZXMgewogICAgaW1wbGVtZW50YXRpb24ocHJvamVjdCgiOmNvcmU6Y29tbW9uIikpCiAgICBpbXBsZW1lbnRhdGlvbihsaWJzLmJ1bmRsZXMuaGlsdCkKICAgIGtzcChsaWJzLmhpbHQuY29tcGlsZXIpCiAgICBpbXBsZW1lbnRhdGlvbihsaWJzLmJ1bmRsZXMuY29yb3V0aW5lcykKICAgIGltcGxlbWVudGF0aW9uKGxpYnMuYW5kcm9pZC54LmNvcmUua3R4KQogICAgaW1wbGVtZW50YXRpb24obGlicy5zaGVycGEub25ueCkKfQo=
+plugins {
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.hilt)
+}
+
+android {
+    namespace = "com.epubaudioreader.core.tts"
+    compileSdk = 35
+    defaultConfig { minSdk = 26 }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+    kotlinOptions { jvmTarget = "17" }
+}
+
+dependencies {
+    implementation(project(":core:common"))
+    implementation(libs.bundles.hilt)
+    ksp(libs.hilt.compiler)
+    implementation(libs.bundles.coroutines)
+    implementation(libs.android.x.core.ktx)
+    implementation(libs.sherpa.onnx)
+}
