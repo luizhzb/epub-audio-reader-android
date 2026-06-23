@@ -30,7 +30,7 @@ class ModelAssetLoader @Inject constructor(
 ) {
     companion object {
         private const val TAG = "ModelAssetLoader"
-        private const val DATA_DIR = "vits-piper-en_US-amy-low/espeak-ng-data"
+        private const val MODEL_DIR = "vits-piper-pt_BR-faber-medium"
     }
 
     private val _state = MutableStateFlow<ModelLoadState>(ModelLoadState.NotLoaded)
@@ -39,47 +39,42 @@ class ModelAssetLoader @Inject constructor(
     val modelDir: File
         get() = File(context.filesDir, "tts_model")
 
-    /**
-     * Verifica se o modelo existe nos assets e prepara o TTS.
-     * Usa newFromAsset() do Sherpa-ONNX que carrega diretamente do APK.
-     */
     suspend fun prepareModel(): Boolean = withContext(Dispatchers.IO) {
         try {
             _state.value = ModelLoadState.Loading
             Log.i(TAG, "Verificando modelo nos assets...")
 
-            // Verificar se assets existem
             val assetManager = context.assets
             val assets = assetManager.list("") ?: emptyArray()
 
             // Verificar se o diretorio do modelo existe nos assets
-            val modelAssets = assetManager.list("vits-piper-en_US-amy-low") ?: emptyArray()
+            val modelAssets = assetManager.list(MODEL_DIR) ?: emptyArray()
             if (modelAssets.isEmpty()) {
                 Log.e(TAG, "Modelo NAO encontrado nos assets!")
                 Log.e(TAG, "Assets disponiveis: ${assets.toList()}")
-                _state.value = ModelLoadState.Error("Modelo TTS nao encontrado no APK. Assets: ${assets.toList()}")
+                _state.value = ModelLoadState.Error("Modelo TTS nao encontrado no APK")
                 return@withContext false
             }
 
-            Log.i(TAG, "Modelo encontrado nos assets: ${modelAssets.toList()}")
+            Log.i(TAG, "Modelo encontrado: ${modelAssets.toList()}")
 
             // Copiar espeak-ng-data para external files (requerido pelo JNI)
             copyEspeakDataIfNeeded(assetManager)
 
-            // Inicializar TTS com AssetManager (newFromAsset carrega diretamente do APK)
-            Log.i(TAG, "Inicializando TTS engine com AssetManager...")
+            // Inicializar TTS com AssetManager
+            Log.i(TAG, "Inicializando TTS engine...")
             val success = ttsEngine.initialize(assetManager)
 
             if (success) {
-                Log.i(TAG, "TTS inicializado com sucesso!")
+                Log.i(TAG, "TTS inicializado!")
                 _state.value = ModelLoadState.Ready
             } else {
-                Log.e(TAG, "Falha ao inicializar TTS engine")
-                _state.value = ModelLoadState.Error("Falha ao inicializar TTS engine")
+                Log.e(TAG, "Falha ao inicializar TTS")
+                _state.value = ModelLoadState.Error("Falha ao inicializar TTS")
             }
             success
         } catch (e: Exception) {
-            Log.e(TAG, "Erro ao preparar modelo: ${e.message}", e)
+            Log.e(TAG, "Erro: ${e.message}", e)
             _state.value = ModelLoadState.Error("Erro: ${e.message}")
             false
         }
@@ -95,11 +90,11 @@ class ModelAssetLoader @Inject constructor(
 
     private fun copyEspeakDataIfNeeded(assetManager: AssetManager) {
         val destDir = context.getExternalFilesDir(null) ?: context.filesDir
-        val espeakDataDir = MODEL_DIR + "/espeak-ng-data"
-        val dataDirFile = File(destDir, espeakDataDir)
+        val espeakDataPath = MODEL_DIR + "/espeak-ng-data"
+        val dataDirFile = File(destDir, espeakDataPath)
 
         if (dataDirFile.exists() && dataDirFile.list()?.isNotEmpty() == true) {
-            Log.i(TAG, "espeak-ng-data ja existe em $dataDirFile")
+            Log.i(TAG, "espeak-ng-data ja existe")
             return
         }
 
@@ -107,11 +102,10 @@ class ModelAssetLoader @Inject constructor(
         _state.value = ModelLoadState.Copying(0)
 
         try {
-            copyAssetsRecursively(assetManager, espeakDataDir, destDir.absolutePath)
-            Log.i(TAG, "espeak-ng-data copiado com sucesso")
+            copyAssetsRecursively(assetManager, espeakDataPath, destDir.absolutePath)
+            Log.i(TAG, "espeak-ng-data copiado")
         } catch (e: Exception) {
             Log.w(TAG, "Falha ao copiar espeak-ng-data: ${e.message}")
-            // Nao e fatal - alguns modelos funcionam sem
         }
     }
 
