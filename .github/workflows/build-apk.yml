@@ -60,33 +60,56 @@ jobs:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
+      - name: Delete old release
+        uses: dev-drprasad/delete-tag-and-release@v1.0
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v0.3.0
+          delete_release: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v0.2.1-fase2-modelo
-          name: "Fase 2 - Kokoro Offline TTS (Modelo Incluso)"
+          tag_name: v0.3.0
+          name: "v0.3.0 - TTS Integrado + Correções"
           body: |
-            ## EPUB Audio Reader - Fase 2 (com modelo TTS)
+            ## EPUB Audio Reader v0.3.0
 
-            ### O que ha de novo
-            - **Modelo TTS empacotado no APK** — 100% offline, sem download!
-            - TTS Offline com Sherpa-ONNX
-            - Tela de teste "Testar Voz"
-            - Sintese de voz local
+            ### TTS Offline Integrado
+            - TTS com Sherpa-ONNX 100% offline
+            - Modelo empacotado no APK (sem download)
+            - Leitura por parágrafo na tela de EPUB
+            - Controles: play, pause, próximo, anterior
+
+            ### Correções de Crash
+            - AudioTrack com MODE_STREAM (estável)
+            - PCM com ENCODING_PCM_FLOAT
+            - Sincronização com callback onComplete
+            - Error handling completo com snackbar
+            - Logging detalhado para debug
+
+            ### Melhorias
+            - Progresso de cópia por bytes (não por arquivo)
+            - Verificação de integridade do modelo (.onnx + .json)
+            - ViewModel init corrigido (corrotinas separadas)
+            - Auto-limpeza de arquivos parciais em erro
 
             ### Como usar
-            1. Instale o APK (~30 MB)
-            2. Abra o app
-            3. Toque no icone de voz na barra superior
-            4. Toque "Preparar Modelo" (copia interna, rapido)
-            5. Digite um texto e toque "Testar Voz"
+            1. Instale o APK (~130 MB)
+            2. Abra um EPUB
+            3. Toque no ícone 🔊 (canto inferior direito)
+            4. O app copia o modelo (primeira vez, ~5s)
+            5. A leitura começa automaticamente
 
             ### Requisitos
             - Android 8.0+ (API 26)
-            - **Zero configuracao, zero download, 100% offline**
+            - **100% offline, zero configuração**
           files: app/build/outputs/apk/debug/app-debug.apk
           draft: false
-          prerelease: true
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
