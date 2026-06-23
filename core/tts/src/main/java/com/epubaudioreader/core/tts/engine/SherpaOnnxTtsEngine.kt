@@ -12,121 +12,73 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Implementação do [TtsEngine] usando a biblioteca Sherpa-ONNX [OfflineTts].
- *
- * Integra modelos VITS/Piper para síntese de voz de alta qualidade offline.
- * Suporta múltiplos idiomas via modelos ONNX carregados dinamicamente.
- *
- * @sampleRate padrão de 22050 Hz (Piper models).
+ * Engine TTS usando Sherpa-ONNX com modelos VITS/Piper.
  */
 @Singleton
 class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
 
-    companion object {
-        const val DEFAULT_SAMPLE_RATE = 22050
-        const val DEFAULT_NUM_THREADS = 4
-        const val DEFAULT_PROVIDER = "cpu"
-        const val DEFAULT_SPEAKER_ID = 0
-        const val DEFAULT_SPEED = 1.0f
-        const val DEFAULT_MAX_NUM_SENTENCES = 1
-    }
-
     private var tts: OfflineTts? = null
-    private var currentModelDir: String = ""
 
     override val isInitialized: Boolean
         get() = tts != null
 
     override val sampleRate: Int
-        get() = tts?.sampleRate() ?: DEFAULT_SAMPLE_RATE
+        get() = tts?.sampleRate() ?: 22050
 
     /**
-     * Inicializa o engine TTS carregando o modelo do diretório [modelDir].
+     * Inicializa o TTS com o modelo do diretorio especificado.
      *
-     * O diretório deve conter os seguintes arquivos (estrutura Sherpa-ONNX/Piper):
-     * - model.onnx          : modelo neural ONNX
-     * - tokens.txt          : mapeamento de tokens
-     * - lexicon.txt         : léxico de pronúncia (opcional)
-     * - dict/               : diretório de dicionários (opcional)
-     * - espeak-ng-data/     : dados do espeak-ng (opcional, para G2P)
-     *
-     * @param modelDir Caminho absoluto do diretório com os arquivos do modelo.
-     * @return true se o modelo foi carregado com sucesso.
+     * @param modelDir Diretorio contendo model.onnx e model.onnx.json
      */
-    override suspend fun initialize(modelDir: String): Boolean = withContext(Dispatchers.Default) {
+    override suspend fun initialize(modelDir: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            release()
+            val dir = File(modelDir)
+            val modelFile = File(dir, "model.onnx")
+            val configFile = File(dir, "model.onnx.json")
 
-            val modelFile = File(modelDir, "model.onnx")
-            val tokensFile = File(modelDir, "tokens.txt")
-            val lexiconFile = File(modelDir, "lexicon.txt")
-            val dictDir = File(modelDir, "dict")
-            val dataDir = File(modelDir, "espeak-ng-data")
-
-            // Validação dos arquivos obrigatórios
             if (!modelFile.exists()) {
-                throw IllegalStateException(
-                    "Modelo ONNX não encontrado: ${modelFile.absolutePath}. " +
-                    "Certifique-se de que o arquivo 'model.onnx' existe no diretório."
-                )
-            }
-            if (!tokensFile.exists()) {
-                throw IllegalStateException(
-                    "Arquivo de tokens não encontrado: ${tokensFile.absolutePath}. " +
-                    "Certifique-se de que o arquivo 'tokens.txt' existe no diretório."
-                )
+                return@withContext false
             }
 
-            val config = OfflineTtsConfig(
-                model = OfflineTtsModelConfig(
-                    vits = OfflineTtsVitsModelConfig(
-                        model = modelFile.absolutePath,
-                        tokens = tokensFile.absolutePath,
-                        dataDir = if (dataDir.exists()) dataDir.absolutePath else "",
-                        dictDir = if (dictDir.exists()) dictDir.absolutePath else "",
-                        lexicon = if (lexiconFile.exists()) lexiconFile.absolutePath else ""
-                    ),
-                    numThreads = DEFAULT_NUM_THREADS,
-                    debug = false,
-                    provider = DEFAULT_PROVIDER
+            // Config para modelo VITS/Piper
+            val modelConfig = OfflineTtsModelConfig(
+                vits = OfflineTtsVitsModelConfig(
+                    model = modelFile.absolutePath,
+                    tokens = "",  // Piper nao usa tokens.txt separado
+                    dataDir = "",  // embedded no modelo
+                    dictDir = "",
+                    lexicon = ""
                 ),
-                ruleFsts = "",
-                ruleFars = "",
-                maxNumSentences = DEFAULT_MAX_NUM_SENTENCES
+                numThreads = 4,
+                debug = false,
+                provider = "cpu"
             )
 
-            tts = OfflineTts(assetManager = null, config = config)
-            currentModelDir = modelDir
+            val config = OfflineTtsConfig(
+                model = modelConfig,
+                ruleFsts = "",
+                ruleFars = "",
+                maxNumSentences = 1
+            )
 
-            true
+            // Liberar instancia anterior se existir
+            tts?.release()
+            tts = OfflineTts(assetManager = null, config = config)
+
+            return@withContext tts != null
         } catch (e: Exception) {
             e.printStackTrace()
-            false
+            return@withContext false
         }
     }
 
     /**
-     * Sintetiza o [text] em áudio usando o modelo carregado.
-     *
-     * @param text Texto a ser sintetizado. Deve estar em português para modelos pt-BR.
-     * @return FloatArray com amostras PCM no intervalo [-1.0, 1.0], ou null se falhar.
+     * Sintetiza texto em audio PCM (float samples).
      */
     override fun synthesize(text: String): FloatArray? {
-        val currentTts = tts ?: run {
-            return null
-        }
-
+        val engine = tts ?: return null
         return try {
-            if (text.isBlank()) {
-                return FloatArray(0)
-            }
-
-            val audio: GeneratedAudio = currentTts.generate(
-                text = text.trim(),
-                sid = DEFAULT_SPEAKER_ID,
-                speed = DEFAULT_SPEED
-            )
-
+            val audio: GeneratedAudio = engine.generate(text, sid = 0, speed = 1.0f)
             audio.samples
         } catch (e: Exception) {
             e.printStackTrace()
@@ -134,18 +86,8 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
         }
     }
 
-    /**
-     * Libera todos os recursos nativos do Sherpa-ONNX.
-     * Deve ser chamado quando o engine não for mais necessário.
-     */
     override fun release() {
-        try {
-            tts?.release()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        } finally {
-            tts = null
-            currentModelDir = ""
-        }
+        tts?.release()
+        tts = null
     }
 }
