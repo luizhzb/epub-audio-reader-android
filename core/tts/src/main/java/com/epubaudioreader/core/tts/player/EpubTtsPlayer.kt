@@ -1,1 +1,289 @@
-cGFja2FnZSBjb20uZXB1YmF1ZGlvcmVhZGVyLmNvcmUudHRzLnBsYXllcgppbXBvcnQgYW5kcm9pZC51dGlsLkxvZwppbXBvcnQgY29tLmVwdWJhdWRpb3JlYWRlci5jb3JlLmRvbWFpbi5tb2RlbC5DaGFwdGVyQ29udGVudAppbXBvcnQgY29tLmVwdWJhdWRpb3JlYWRlci5jb3JlLnR0cy5lbmdpbmUuVHRzRW5naW5lCmltcG9ydCBjb20uZXB1YmF1ZGlvcmVhZGVyLmNvcmUudHRzLm1vZGVsLk1vZGVsTWFuYWdlcgppbXBvcnQgY29tLmVwdWJhdWRpb3JlYWRlci5jb3JlLnR0cy5zeW50aGVzaXMuVHRzU3ludGhlc2l6ZXIKaW1wb3J0IGtvdGxpbnguY29yb3V0aW5lcy4qCmltcG9ydCBrb3RsaW54LmNvcm91dGluZXMuZmxvdy5NdXRhYmxlU3RhdGVGbG93CmltcG9ydCBrb3RsaW54LmNvcm91dGluZXMuZmxvdy5TdGF0ZUZsb3cKaW1wb3J0IGtvdGxpbnguY29yb3V0aW5lcy5mbG93LmFzU3RhdGVGbG93CmltcG9ydCBqYXZheC5pbmplY3QuSW5qZWN0CmltcG9ydCBqYXZheC5pbmplY3QuU2luZ2xldG9uCgovKioKICogRXN0YWRvIGRhIHJlcHJvZHVj8bygbyBUVFMgZG8gRVBVQi4KICoKICogQHBhcmFtIGlzUGxheWluZyBJbmRpY2Egc2UgbyBUVFMgZXN0YSByZXByb2R1emluZG8uCiAqIEBwYXJhbSBjdXJyZW50Q2hhcHRlckluZGV4IEluZGljZSBkbyBjYXBpdHVsbyBhdHVhbC4KICogQHBhcmFtIGN1cnJlbnRQYXJhZ3JhcGhJbmRleCBJbmRpY2UgZG8gcGFyYWdyYWZvIGF0dWFsLgogKiBAcGFyYW0gY3VyUmVudFRleHQgVGV4dG8gYXR1YWwgc2VuZG8gcmVwcm9kdXppZG8uCiAqIEBwYXJhbSBpc0VuZ2luZVJlYWR5IEluZGljYSBzZSBvIGVuZ2luZSBUVFMgZXN0YSBpbmljaWFsaXphZG8uCiAqIEBwYXJhbSBlcnJvciBNZW5zYWdlbSBkZSBlcnJvLCBzZSBob3V2ZXIuCiAqLwpkYXRhIGNsYXNzIFR0c1BsYXliYWNrU3RhdGUoCiAgICB2YWwgaXNQbGF5aW5nOiBCb29sZWFuID0gZmFsc2UsCiAgICB2YWwgY3VycmVudENoYXB0ZXJJbmRleDogSW50ID0gMCwKICAgIHZhbCBjdXJyZW50UGFyYWdyYXBoSW5kZXg6IEludCA9IDAsCiAgICB2YWwgY3VycmVudFRleHQ6IFN0cmluZyA9ICIiLAogICAgdmFsIGlzRW5naW5lUmVhZHk6IEJvb2xlYW4gPSBmYWxzZSwKICAgIHZhbCBlcnJvcjogU3RyaW5nPyA9IG51bGwKKQoKLyoqCiAqIFBsYXllciBkZSBUVFMgcGFyYSBsZWl0dXJhIGRlIEVQVUIgcG9yIHBhcmFncmFmby4KICoKICogR2VyZW5jaWEgYSByZXByb2R1Y8etbyBkZSBjYXBpdHVsb3Mgb3IgcG9yIHBhcmFncmFmbywgY29tIGNvbnRyb2xlcyBkZQogKiBuYXZlZ2FjYW8gKHByb3hpbW8vYW50ZXJpb3IpIGUgZXN0YWRvIGRlIHJlcHJvZHVj8mNvLgogKgogKiBvcyBjYXBpdHVsb3Mgc8OjbyBwYXNzYWRvcyBjb21vIGxpc3RhIGRlIFtDaGFwdGVyQ29udGVudF0sIHF1ZSBq4mcgY29udOltCiAqIG9zIHBhcmFncmFmb3MgcGFyc2VhZG9zLgogKgogKiBAcGFyYW0gbW9kZWxNYW5hZ2VyIEdlcmVuY2lhZG9yIGRvIG1vZGVsbyBUTU4uCiAqIEBwYXJhbSB0dHNFbmdpbmUgRW5naW5lIGRlIHNpbnRlc2UgVFRTLgogKiBAcGFyYW0gc3ludGhlc2l6ZXIgU2ludGV0aXphZG9yIHBhcmEgcmVwcm9kdXOhby4KICovCkBTaW5nbGV0b24KY2xhc3MgRXB1YlR0c1BsYXllciBAQEluamVjdCBjb25zdHJ1Y3RvcigKICAgIHByaXZhdGUgdmFsIG1vZGVsTWFuYWdlcjogTW9kZWxNYW5hZ2VyLAogICAgcHJpdmF0ZSB2YWwgdHRzRW5naW5lOiBUdHNFbmdpbmUsCiAgICBwcml2YXRlIHZhbCBzeW50aGVzaXplcjogVHRzU3ludGhlc2l6ZXIKKSB7CiAgICBjb21wYW5pb24gb2JqZWN0IHsKICAgICAgICBwcml2YXRlIGNvbnN0IHZhbCBUQUcgPSAiRXB1YlR0c1BsYXllciIKICAgIH0KCiAgICBwcml2YXRlIHZhbCBfc3RhdGUgPSBNdXRhYmxlU3RhdGVGbG93KFR0c1BsYXliYWNrU3RhdGUoKSkKICAgIHZhbCBzdGF0ZTogU3RhdGVGbG93PFR0c1BsYXliYWNrU3RhdGU+ID0gX3N0YXRlLmFzU3RhdGVGbG93KCkKCiAgICAvLyBMaXN0YSBkZSBjYXBpdHVsb3MgY29tIHBhcmFncmFmb3MKICAgIHByaXZhdGUgdmFyIGNoYXB0ZXJzOiBMaXN0PENoYXB0ZXJDb250ZW50PiA9IGVtcHR5TGlzdCgpCiAgICBwcml2YXRlIHZhciBjdXJyZW50UGFyYWdyYXBoczogTGlzdDxTdHJpbmc+ID0gZW1wdHlMaXN0KCkKCiAgICAvLyBKb2IgZGUgcmVwcm9kdXPhbyBhdHVhbAogICAgcHJpdmF0ZSB2YXIgcGxheWJhY2tKb2I6IEpvYj8gPSBudWxsCgogICAgLy8gU2NvcGUgcGFyYSBjb3Jyb3RpbmFzIGRlIHJlcHJvZHVj8mNvCiAgICBwcml2YXRlIHZhbCBzY29wZSA9IENvcm91dGluZVNjb3BlKFN1cGVydmlzb3JKb2IoKSArIERpc3BhdGNoZXJzLk1haW4pCgogICAgLyoqCiAgICAgKiBEZWZpbmUgb3MgY2FwaXR1bG9zIGEgc2VyZW0gbGlkb3MuCiAgICAgKiBBbnRlcyBkZSBjaGFtYXIgcGxheSgpLCBvIHBsYXllciB1c2EgZXN0YSBsaXN0YSBwYXJhIG5hdmVnYXIgZW50cmUgY2FwaXR1bG9zLgogICAgICoKICAgICAqIEBwYXJhbSBuZXdDaGFwdGVycyBMaXN0YSBkZSBbQ2hhcHRlckNvbnRlbnRdIGNvbSBwYXJhZ3JhZm9zLgogICAgICovCiAgICBmdW4gc2V0Q2hhcHRlcnMobmV3Q2hhcHRlcnM6IExpc3Q8Q2hhcHRlckNvbnRlbnQ+KSB7CiAgICAgICAgY2hhcHRlcnMgPSBuZXdDaGFwdGVycwogICAgfQoKICAgIC8qKgogICAgICogUHJlcGFyYSBvIGVuZ2luZSBUVFMgaW5pY2lhbGl6YW5kbyBvIG1vZGVsby4KICAgICAqIERldmUgc2VyIGNoYW1hZG8gYW50ZXMgZGUgaW5pY2lhciBhIHJlcHJvZHVj8mNvLgogICAgICoKICAgICAqIEByZXR1cm4gdHJ1ZSBzZSBvIGVuZ2luZSBmb2kgaW5pY2lhbGl6YWRvIGNvbSBzdWNlc3NvLgogICAgICovCiAgICBmdW4gcHJlcGFyZSgpOiBCb29sZWFuIHsKICAgICAgICBpZiAodHRzRW5naW5lLmlzSW5pdGlhbGl6ZWQpIHsKICAgICAgICAgICAgX3N0YXRlLnZhbHVlID0gX3N0YXRlLnZhbHVlLmNvcHkoaXNFbmdpbmVSZWFkeSA9IHRydWUpCiAgICAgICAgICAgIExvZy5kKFRBRywgIkVuZ2luZSBqYSBlc3RhIGluaWNpYWxpemFkbyIpCiAgICAgICAgICAgIHJldHVybiB0cnVlCiAgICAgICAgfQoKICAgICAgICByZXR1cm4gcnVuQmxvY2tpbmcgewogICAgICAgICAgICB0cnkgewogICAgICAgICAgICAgICAgbW9kZWxNYW5hZ2VyLmVuc3VyZU1vZGVsUmVhZHkoKQogICAgICAgICAgICAgICAgdmFsIG1vZGVsRGlyID0gbW9kZWxNYW5hZ2VyLm1vZGVsRGlyLmFic29sdXRlUGF0aAogICAgICAgICAgICAgICAgdmFsIHJlc3VsdCA9IHR0c0VuZ2luZS5pbml0aWFsaXplKG1vZGVsRGlyKQoKICAgICAgICAgICAgICAgIGlmIChyZXN1bHQpIHsKICAgICAgICAgICAgICAgICAgICBfc3RhdGUudmFsdWUgPSBfc3RhdGUudmFsdWUuY29weShpc0VuZ2luZVJlYWR5ID0gdHJ1ZSkKICAgICAgICAgICAgICAgICAgICBMb2cuZChUQUcsICJFbmdpbmUgVFRTIGluaWNpYWxpemFkbyBjb20gc3VjZXNzby4gc2FtcGxlUmF0ZT0ke3R0c0VuZ2luZS5zYW1wbGVSYXRlfSIpCiAgICAgICAgICAgICAgICB9IGVsc2UgewogICAgICAgICAgICAgICAgICAgIF9zdGF0ZS52YWx1ZSA9IF9zdGF0ZS52YWx1ZS5jb3B5KAogICAgICAgICAgICAgICAgICAgICAgICBlcnJvciA9ICJGYWxoYSBhbyBpbmljaWFsaXphciBlbmdpbmUgVFRTIgogICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIHJlc3VsdAogICAgICAgICAgICB9IGNhdGNoIChlOiBFeGNlcHRpb24pIHsKICAgICAgICAgICAgICAgIExvZy5lKFRBRywgIkVycm8gYW8gcHJlcGFyYXIgZW5naW5lIFRTUzogJHtlLm1lc3NhZ2V9IiwgZSkKICAgICAgICAgICAgICAgIF9zdGF0ZS52YWx1ZSA9IF9zdGF0ZS52YWx1ZS5jb3B5KAogICAgICAgICAgICAgICAgICAgIGVycm9yID0gIkVycm8gYW8gcHJlcGFyYXIgZW5naW5lOiAke2UubWVzc2FnZX0iCiAgICAgICAgICAgICAgICApCiAgICAgICAgICAgICAgICBmYWxzZQogICAgICAgICAgICB9CiAgICAgICAgfQogICAgfQoKICAgIC8qKgogICAgICogSW5pY2lhIGEgcmVwcm9kdXPhbyBhcGFydGlyIGRvIGNhcGl0dWxvIGUgKHBvc3NpdmVsZW1lbnQpIHBhcmFncmFmbyBpbmRpY2Fkby4KICAgICAqCiAgICAgKiBAcGFyYW0gY2hhcHRlckluZGV4IEluZGljZSBkbyBjYXBpdHVsbyBhIHJlcHJvZHV6aXIuCiAgICAgKiBAcGFyYW0gc3RhcnRQYXJhZ3JhcGggSW5kaWNlIGRvIHBhcmFncmFmbyBpbmljaWFsIGRlbnRybyBkbyBjYXBpdHVsby4KICAgICAqLwogICAgZnVuIHBsYXkoY2hhcHRlckluZGV4OiBJbnQsIHN0YXJ0UGFyYWdyYXBoOiBJbnQgPSAwKSB7CiAgICAgICAgaWYgKGNoYXB0ZXJzLmlzRW1wdHkoKSkgewogICAgICAgICAgICBfc3RhdGUudmFsdWUgPSBfc3RhdGUudmFsdWUuY29weShlcnJvciA9ICJOaHVtIGNhcGl0dWxvIGNhcnJlZ2FkbyIpCiAgICAgICAgICAgIHJldHVybgogICAgICAgIH0KCiAgICAgICAgaWYgKCF0dHNFbmdpbmUuaXNJbml0aWFsaXplZCkgewogICAgICAgICAgICBfc3RhdGUudmFsdWUgPSBfc3RhdGUudmFsdWUuY29weSgKICAgICAgICAgICAgICAgIGVycm9yID0gIkVuZ2luZSBUVFMgbsODbyBpbmljaWFsaXphZG8uIENoYW1lIHByZXBhcmUoKSBwcmltZWlyby4iCiAgICAgICAgICAgICkKICAgICAgICAgICAgcmV0dXJuCiAgICAgICAgfQoKICAgICAgICAvLyBDYW5jZWxhIHJlcHJvZHVj8mNvIGFudGVyaW9yIHNlIGhvdXZlcgogICAgICAgIHN0b3AoKQoKICAgICAgICBwbGF5YmFja0pvYiA9IHNjb3BlLmxhdW5jaCB7CiAgICAgICAgICAgIHRyeSB7CiAgICAgICAgICAgICAgICBfc3RhdGUudmFsdWUgPSBfc3RhdGUudmFsdWUuY29weSgKICAgICAgICAgICAgICAgICAgICBpc1BsYXlpbmcgPSB0cnVlLAogICAgICAgICAgICAgICAgICAgIGN1cnJlbnRDaGFwdGVySW5kZXggPSBjaGFwdGVySW5kZXgsCiAgICAgICAgICAgICAgICAgICAgZXJyb3IgPSBudWxsCiAgICAgICAgICAgICAgICApCgogICAgICAgICAgICAgICAgLy8gVG9jYSBwb3IgY2FkYSBjYXBpdHVsbyBhIHBhcnRpciBkbyBhdHVhbAogICAgICAgICAgICAgICAgZm9yIChjSW5kZXggaW4gY2hhcHRlckluZGV4IHVudGlsIGNoYXB0ZXJzLnNpemUpIHsKICAgICAgICAgICAgICAgICAgICBpZiAoIWlzQWN0aXZlKSBicmVhawoKICAgICAgICAgICAgICAgICAgICB2YWwgY2hhcHRlciA9IGNoYXB0ZXJzW2NJbmRleF0KICAgICAgICAgICAgICAgICAgICBjdXJyZW50UGFyYWdyYXBocyA9IGNoYXB0ZXIucGFyYWdyYXBocwoKICAgICAgICAgICAgICAgICAgICB2YWwgc3RhcnRJZHggPSBpZiAoY0luZGV4ID09IGNoYXB0ZXJJbmRleCkgc3RhcnRQYXJhZ3JhcGggZWxzZSAwCgogICAgICAgICAgICAgICAgICAgIExvZy5kKFRBRywgIkNhcGl0dWxvICRjSW5kZXg6ICR7Y2hhcHRlci5wYXJhZ3JhcGhzLnNpemV9IHBhcmFncmFmb3MuIEluaWNpYW5kbyBkbyBwYXJhZ3JhZm8gJHN0YXJ0SWR4IikKCiAgICAgICAgICAgICAgICAgICAgZm9yIChwSW5kZXggaW4gc3RhcnRJZHggdW50aWwgY3VycmVudFBhcmFncmFwaHMuc2l6ZSkgewogICAgICAgICAgICAgICAgICAgICAgICBpZiAoIWlzQWN0aXZlKSBicmVhawoKICAgICAgICAgICAgICAgICAgICAgICAgdmFsIHRleHQgPSBjdXJyZW50UGFyYWdyYXBoc1twSW5kZXhdCgogICAgICAgICAgICAgICAgICAgICAgICAvLyBQdWxhIHBhcmEgbwogICAgICAgICAgICAgICAgICAgICAgICBfc3RhdGUudmFsdWUgPSBfc3RhdGUudmFsdWUuY29weSgKICAgICAgICAgICAgICAgICAgICAgICAgICAgIGN1cnJlbnRDaGFwdGVySW5kZXggPSBjSW5kZXgsCiAgICAgICAgICAgICAgICAgICAgICAgICAgICBjdXJyZW50UGFyYWdyYXBoSW5kZXggPSBwSW5kZXgsCiAgICAgICAgICAgICAgICAgICAgICAgICAgICBjdXJyZW50VGV4dCA9IHRleHQKICAgICAgICAgICAgICAgICAgICAgICAgKQoKICAgICAgICAgICAgICAgICAgICAgICAgTG9nLmQoVEFHLCAgIlJlcHJvZHV6aW5kbyBwYXJhZ3JhZm8gJHBJbmRleDogJHt0ZXh0LnRha2UoNTApfS4uLiIpCgogICAgICAgICAgICAgICAgICAgICAgICAvLyBTeW50ZXRpemFyIGUgcmVwcm9kdXppcgogICAgICAgICAgICAgICAgICAgICAgICB2YWwgcmVzdWx0ID0gc3ludGhlc2l6ZXIuc3BlYWsodGV4dCkKCiAgICAgICAgICAgICAgICAgICAgICAgIHJlc3VsdC5vbkZhaWx1cmUgeyBlIC0+CiAgICAgICAgICAgICAgICAgICAgICAgICAgICBMb2cuZShUQUcsICJNcnJvIGFvIHNpbmV0aXphciBwYXJhZ3JhZm8gJHBJbmRleDogJHtlLm1lc3NhZ2V9IiwgZSkKICAgICAgICAgICAgICAgICAgICAgICAgICAgIF9zdGF0ZS52YWx1ZSA9IF9zdGF0ZS52YWx1ZS5jb3B5KAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGlzUGxheWluZyA9IGZhbHNlLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGVycm9yID0gZSYjeDI3O21lc3NhZ2UKICAgICAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHJldHVybkBsYXVuY2gKICAgICAgICAgICAgICAgICAgICAgICAgfQoKICAgICAgICAgICAgICAgICAgICAgICAgLy8gQWd1YXJkYXIgYSByZXByb2R1Y8OmbyB0ZXJtaW5hciAoY29tIHRpbWVvdXQpCiAgICAgICAgICAgICAgICAgICAgICAgIHZhciB3YWl0Q291bnQgPSAwCiAgICAgICAgICAgICAgICAgICAgICAgIHdoaWxlIChzeW50aGVzaXplci5pc1BsYXlpbmcgJiYgaXNBY3RpdmUgJiYgd2FpdENvdW50IDwgNTAwKSB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICBkZWxheSgyMDApCiAgICAgICAgICAgICAgICAgICAgICAgICAgICB3YWl0Q291bnQrKwogICAgICAgICAgICAgICAgICAgICAgICB9CgogICAgICAgICAgICAgICAgICAgICAgICBpZiAod2FpdENvdW50ID49IDUwMCkgewogICAgICAgICAgICAgICAgICAgICAgICAgICAgTG9nLncoVEFHLCAgIlRpbWVvdXQgYWd1YXJkYW5kbyByZXByb2R1Y8OnbyBkbyBwYXJhZ3JhZm8gJHBJbmRleCIpCiAgICAgICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICB9CgogICAgICAgICAgICAgICAgLy8gUmVwcm9kdXPhbyBjb25jbHVpZGEKICAgICAgICAgICAgICAgIF9zdGF0ZS52YWx1ZSA9IF9zdGF0ZS52YWx1ZS5jb3B5KGlzUGxheWluZyA9IGZhbHNlKQogICAgICAgICAgICAgICAgTG9nLmQoVEFHLCAgIlJlcHJvZHVj8mNvIGNvbmNsdWlkYSAtIHRvZG9zIG9zIGNhcGl0dWxvcyBmb3JhbSBsZWlkb3MiKQoKICAgICAgICAgICAgfSBjYXRjaCAoZTogQ2FuY2VsbGF0aW9uRXhjZXB0aW9uKSB7CiAgICAgICAgICAgICAgICAvLyBSZXByb2R1Y8etbyBjYW5jZWxhZGEgcGVsbyB1c3VhcmlvCiAgICAgICAgICAgICAgICBMb2cuZChUQUcsICJSZXByb2R1Y8m2byBjYW5jZWxhZGEgZW0gY2FwaXR1bG8gJHtfc3RhdGUudmFsdWUuY3VycmVudENoYXB0ZXJJbmRleH0sIHBhcmFncmFmbyAke19zdGF0ZS52YWx1ZS5jdXJyZW50UGFyYWdyYXBoSW5kZXh9IikKICAgICAgICAgICAgICAgIF9zdGF0ZS52YWx1ZSA9IF9zdGF0ZS52YWx1ZS5jb3B5KGlzUGxheWluZyA9IGZhbHNlKQoKICAgICAgICAgICAgfSBjYXRjaCAoZTogRXhjZXB0aW9uKSB7CiAgICAgICAgICAgICAgICBMb2cuZShUQUcsICJFcnJvIG5hIHJlcHJvZHVj8mNvOiAke2UubWVzc2FnZX0iLCBlKQogICAgICAgICAgICAgICAgX3N0YXRlLnZhbHVlID0gX3N0YXRlLnZhbHVlLmNvcHkoCiAgICAgICAgICAgICAgICAgICAgaXNQbGF5aW5nID0gZmFsc2UsCiAgICAgICAgICAgICAgICAgICAgZXJyb3IgPSBlJiMyNzttZXNzYWdlCiAgICAgICAgICAgICAgICApCiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICB9CgogICAgLyoqCiAgICAgKiBQYXVzYSBhIHJlcHJvZHVj8mNvIGF0dWFsLgogICAgICogTWFudGVtIG8gZXN0YWRvIGludGVybm8gcGFyYSByZXRvbWFyIGEgcmVwcm9kdXPhbyBkbyBtZXNtbyBwb250by4KICAgICAqLwogICAgZnVuIHBhdXNlKCkgewogICAgICAgIHN0b3AoKQogICAgICAgIF9zdGF0ZS52YWx1ZSA9IF9zdGF0ZS52YWx1ZS5jb3B5KGlzUGxheWluZyA9IGZhbHNlKQogICAgICAgIExvZy5kKFRBRywgIlRUUzogcmVwcm9kdXPhbyBwYXVzYWRhIikKICAgIH0KCiAgICAvKioKICAgICAqIFBhcmEgYSByZXByb2R1Y8etbyBhdHVhbCBlIGxpbWJyYSByZWN1cnNvcyBkbz8gQXVkaW9UcmFjay4KICAgICAqLwogICAgZnVuIHN0b3AoKSB7CiAgICAgICAgcGxheWJhY2tKb2I/LmNhbmNlbCgpCiAgICAgICAgc3ludGhlc2l6ZXIuc3RvcCgpCiAgICB9CgogICAgLyoqCiAgICAgKiBBdmFu5WEgcGFyYSBvIHByb3hpbW8gcGFyYWdyYWZvLgogICAgICogU2UgamEgZXN0aXZlciBubyBmaW1hbCBkbyBjYXBpdHVsbywgYXZhbnTgIHBhcmEgbyBwcmltZWlybyBwYXJhZ3JhZm8gZG8gcHJveGltbyBjYXBpdHVsby4KICAgICAqLwogICAgZnVuIG5leHRQYXJhZ3JhcGgoKSB7CiAgICAgICAgdmFsIGN1cnJlbnQgPSBfc3RhdGUudmF1bWUKCiAgICAgICAgLy8gVmVyaWZpY2Egc2UgYSBsaXN0YSBkZSBwYXJhZ3JhZm9zIGRhIGNhcGl0dWxvIGF0dWFsIGVzdMOhIGF0dWFsaXphZGEKICAgICAgICB2YWwgY3VycmVudENoYXB0ZXJQYXJhZ3JhcGhzID0gaWYgKGN1cnJlbnQuY3VycmVudENoYXB0ZXJJbmRleCA8IGNoYXB0ZXJzLnNpemUpIHsKICAgICAgICAgICAgY2hhcHRlcnNbY3VycmVudC5jdXJyZW50Q2hhcHRlckluZGV4XS5wYXJhZ3JhcGhzCiAgICAgICAgfSBlbHNlIHsKICAgICAgICAgICAgZW1wdHlMaXN0KCkKICAgICAgICB9CgogICAgICAgIGlmIChjdXJyZW50LmN1cnJlbnRQYXJhZ3JhcGhJbmRleCA8IGN1cnJlbnRDaGFwdGVyUGFyYWdyYXBocy5zaXplIC0gMSkgewogICAgICAgICAgICAvLyBQcm94aW1vIHBhcmFncmFmbyBkbyBtZXNtbyBjYXBpdHVsbwogICAgICAgICAgICBwbGF5KGN1cnJlbnQuY3VycmVudENoYXB0ZXJJbmRleCwgY3VycmVudC5jdXJyZW50UGFyYWdyYXBoSW5kZXggKyAxKQogICAgICAgIH0gZWxzZSBpZiAoY3VycmVudC5jdXJyZW50Q2hhcHRlckluZGV4IDwgY2hhcHRlcnMuc2l6ZSAtIDEpIHsKICAgICAgICAgICAgLy8gUHJveGltbyBjYXBpdHVsbyAtIGluaWNpYSBkbyBwcmltZWlybyBwYXJhZ3JhZm8KICAgICAgICAgICAgcGxheShjdXJyZW50LmN1cnJlbnRDaGFwdGVySW5kZXggKyAxLCAwKQogICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgIExvZy5kKFRBRywgIkphIGVzdG91dm8gbm8gZmltYWwgZG8gdWx0aW1vIGNhcGl0dWxvIC0gcmVwcm9kdXPhbyBjb25jbHVpZGEiKQogICAgICAgICAgICBfc3RhdGUudmFsdWUgPSBfc3RhdGUudmFsdWUuY29weShpc1BsYXlpbmcgPSBmYWxzZSkKICAgICAgICB9CiAgICB9CgogICAgLyoqCiAgICAgKiBSZXRvcm5hIHBhcmEgbwogICAgICogU2UgamEgZXN0aXZlciBubyBpbmljaW8gZG8gY2FwaXR1bG8sIHZvbHRhIHBhcmEgbwogICAgICovCiAgICBmdW4gcHJldmlvdXNQYXJhZ3JhcGgoKSB7CiAgICAgICAgdmFsIGN1cnJlbnQgPSBfc3RhdGUudmFsdWUKCiAgICAgICAgaWYgKGN1cnJlbnQuY3VycmVudFBhcmFncmFwaEluZGV4ID4gMCkgewogICAgICAgICAgICAvLyBQYXJhZ3JhZm8gYW50ZXJpb3IgZG8gbWVzbW8gY2FwaXR1bG8KICAgICAgICAgICAgcGxheShjdXJyZW50LmN1cnJlbnRDaGFwdGVySW5kZXgsIGN1cnJlbnQuY3VycmVudFBhcmFncmFwaEluZGV4IC0gMSkKICAgICAgICB9IGVsc2UgaWYgKGN1cnJlbnQuY3VycmVudENoYXB0ZXJJbmRleCA+IDApIHsKICAgICAgICAgICAgLy8gVm9sdGEgcGFyYSBvIHVsdGltbyBwYXJhZ3JhZm8gZG8gY2FwaXR1bG8gYW50ZXJpb3IKICAgICAgICAgICAgdmFsIHByZXZDaGFwdGVyID0gY2hhcHRlcnNbY3VycmVudC5jdXJyZW50Q2hhcHRlckluZGV4IC0gMV0KICAgICAgICAgICAgcGxheShjdXJyZW50LmN1cnJlbnRDaGFwdGVySW5kZXggLSAxLCBwcmV2Q2hhcHRlci5wYXJhZ3JhcGhzLnNpemUgLSAxKQogICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgIExvZy5kKFRBRywgIkphIGVzdG91dm8gbm8gaW5pY2lvIGRhIGxlaXR1cmEgLSBuZW1oZW0gcGFyYSByZXRvcm5hciIpCiAgICAgICAgfQogICAgfQoKICAgIC8qKgogICAgICogTGltcGEgdG9kb3MgbyByZWN1cnNvcyBsaWJlcmFkb3MgcGVsbyBwbGF5ZXIuCiAgICAgKiBEZXZlIHNlciBjaGFtYWRvIHF1YW5kbyBvIHVzdWFyaW8gc2FpciBkYSB0ZWxhIGRlIGxlaXR1cmEuCiAgICAgKi8KICAgIGZ1biByZWxlYXNlKCkgewogICAgICAgIExvZy5kKFRBRywgIlJlbGVhc2UgRXB1YlR0c1BsYXllciIpCiAgICAgICAgc3RvcCgpCiAgICAgICAgc3ludGhlc2l6ZXIucmVsZWFzZSgpCiAgICAgICAgc2NvcGUuY2FuY2VsKCkKICAgIH0KfQo=
+package com.epubaudioreader.core.tts.player
+import android.util.Log
+import com.epubaudioreader.core.domain.model.ChapterContent
+import com.epubaudioreader.core.tts.engine.TtsEngine
+import com.epubaudioreader.core.tts.model.ModelManager
+import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Estado da reprodução TTS do EPUB.
+ *
+ * @param isPlaying Indica se o TTS esta reproduzindo.
+ * @param currentChapterIndex Indice do capítulo atual.
+ * @param currentParagraphIndex Indice do parágrafo atual.
+ * @param curRentText Texto atual sendo reproduzido.
+ * @param isEngineReady Indica se o engine TTS esta inicializado.
+ * @param error Mensagem de erro, se houver.
+ */
+data class TtsPlaybackState(
+    val isPlaying: Boolean = false,
+    val currentChapterIndex: Int = 0,
+    val currentParagraphIndex: Int = 0,
+    val currentText: String = "",
+    val isEngineReady: Boolean = false,
+    val error: String? = null
+)
+
+/**
+ * Player de TTS para leitura de EPUB por parágrafo.
+ *
+ * Gerencia a reprodução de capítulos por parágrafo, com controles de
+ * navegacao (próximo/anterior) e estado de reprodução.
+ *
+ * os capítulos são passados como lista de [ChapterContent], que já contém
+ * os parágrafos parseados.
+ *
+ * @param modelManager Gerenciador do modelo TTS.
+ * @param ttsEngine Engine de síntese TTS.
+ * @param synthesizer Sintetizador para reprodução.
+ */
+@Singleton
+class EpubTtsPlayer @@Inject constructor(
+    private val modelManager: ModelManager,
+    private val ttsEngine: TtsEngine,
+    private val synthesizer: TtsSynthesizer
+) {
+    companion object {
+        private const val TAG = "EpubTtsPlayer"
+    }
+
+    private val _state = MutableStateFlow(TtsPlaybackState())
+    val state: StateFlow<TtsPlaybackState> = _state.asStateFlow()
+
+    // Lista de capítulos com parágrafos
+    private var chapters: List<ChapterContent> = emptyList()
+    private var currentParagraphs: List<String> = emptyList()
+
+    // Job de reprodução atual
+    private var playbackJob: Job? = null
+
+    // Scope para corrotinas de reprodução
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /**
+     * Define os capítulos a serem lidos.
+     * Antes de chamar play(), o player usa esta lista para navegar entre capítulos.
+     *
+     * @param newChapters Lista de [ChapterContent] com parágrafos.
+     */
+    fun setChapters(newChapters: List<ChapterContent>) {
+        chapters = newChapters
+    }
+
+    /**
+     * Prepara o engine TTS inicializando o modelo.
+     * Deve ser chamado antes de iniciar a reprodução.
+     *
+     * @return true se o engine foi inicializado com sucesso.
+     */
+    fun prepare(): Boolean {
+        if (ttsEngine.isInitialized) {
+            _state.value = _state.value.copy(isEngineReady = true)
+            Log.d(TAG, "Engine ja esta inicializado")
+            return true
+        }
+
+        return runBlocking {
+            try {
+                modelManager.ensureModelReady()
+                val modelDir = modelManager.modelDir.absolutePath
+                val result = ttsEngine.initialize(modelDir)
+
+                if (result) {
+                    _state.value = _state.value.copy(isEngineReady = true)
+                    Log.d(TAG, "Engine TTS inicializado com sucesso. sampleRate=${ttsEngine.sampleRate}")
+                } else {
+                    _state.value = _state.value.copy(
+                        error = "Falha ao inicializar engine TTS"
+                    )
+                }
+                result
+            } catch (e: Exception) {
+                Log.e(TAG, "Erro ao preparar engine TSS: ${e.message}", e)
+                _state.value = _state.value.copy(
+                    error = "Erro ao preparar engine: ${e.message}"
+                )
+                false
+            }
+        }
+    }
+
+    /**
+     * Inicia a reprodução a partir do capítulo e (possivelmente) parágrafo indicado.
+     *
+     * @param chapterIndex Indice do capítulo a reproduzir.
+     * @param startParagraph Indice do parágrafo inicial dentro do capítulo.
+     */
+    fun play(chapterIndex: Int, startParagraph: Int = 0) {
+        if (chapters.isEmpty()) {
+            _state.value = _state.value.copy(error = "Nenhum capítulo carregado")
+            return
+        }
+
+        if (!ttsEngine.isInitialized) {
+            _state.value = _state.value.copy(
+                error = "Engine TTS não inicializado. Chame prepare() primeiro."
+            )
+            return
+        }
+
+        // Cancela reprodução anterior se houver
+        stop()
+
+        playbackJob = scope.launch {
+            try {
+                _state.value = _state.value.copy(
+                    isPlaying = true,
+                    currentChapterIndex = chapterIndex,
+                    error = null
+                )
+
+                // Toca por cada capítulo a partir do atual
+                for (cIndex in chapterIndex until chapters.size) {
+                    if (!isActive) break
+
+                    val chapter = chapters[cIndex]
+                    currentParagraphs = chapter.paragraphs
+
+                    val startIdx = if (cIndex == chapterIndex) startParagraph else 0
+
+                    Log.d(TAG, "Capitulo $cIndex: ${chapter.paragraphs.size} parágrafos. Iniciando do parágrafo $startIdx")
+
+                    for (pIndex in startIdx until currentParagraphs.size) {
+                        if (!isActive) break
+
+                        val text = currentParagraphs[pIndex]
+
+                        // Pula para o
+                        _state.value = _state.value.copy(
+                            currentChapterIndex = cIndex,
+                            currentParagraphIndex = pIndex,
+                            currentText = text
+                        )
+
+                        Log.d(TAG,  "Reproduzindo parágrafo $pIndex: ${text.take(50)}...")
+
+                        // Syntetizar e reproduzir
+                        val result = synthesizer.speak(text)
+
+                        result.onFailure { e ->
+                            Log.e(TAG, "Erro ao sintetizar parágrafo $pIndex: ${e.message}", e)
+                            _state.value = _state.value.copy(
+                                isPlaying = false,
+                                error = e.message
+                            )
+                            return@launch
+                        }
+
+                        // Aguardar a reproducæo terminar (com timeout)
+                        var waitCount = 0
+                        while (synthesizer.isPlaying && isActive && waitCount < 500) {
+                            delay(200)
+                            waitCount++
+                        }
+
+                        if (waitCount >= 500) {
+                            Log.w(TAG,  "Timeout aguardando reprodução do parágrafo $pIndex")
+                        }
+                    }
+                }
+
+                // Reprodução concluída
+                _state.value = _state.value.copy(isPlaying = false)
+                Log.d(TAG,  "Reprodução concluída - todos os capítulos foram leidos")
+
+            } catch (e: CancellationException) {
+                // Reproducǭo cancelada pelo usuario
+                Log.d(TAG, "Reproducɶo cancelada em capítulo ${_state.value.currentChapterIndex}, parágrafo ${_state.value.currentParagraphIndex}")
+                _state.value = _state.value.copy(isPlaying = false)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Erro na reprodução: ${e.message}", e)
+                _state.value = _state.value.copy(
+                    isPlaying = false,
+                    error = e.message
+                )
+            }
+        }
+    }
+
+    /**
+     * Pausa a reprodução atual.
+     * Mantem o estado interno para retomar a reprodução do mesmo ponto.
+     */
+    fun pause() {
+        stop()
+        _state.value = _state.value.copy(isPlaying = false)
+        Log.d(TAG, "TTS: reprodução pausada")
+    }
+
+    /**
+     * Para a reprodução atual e limpa recursos do AudioTrack.
+     */
+    fun stop() {
+        playbackJob?.cancel()
+        synthesizer.stop()
+    }
+
+    /**
+     * Avança para o próximo parágrafo.
+     * Se ja estiver no final do capítulo, avança para o primeiro parágrafo do próximo capítulo.
+     */
+    fun nextParagraph() {
+        val current = _state.value
+
+        // Verifica se a lista de parágrafos da capítulo atual está atualizada
+        val currentChapterParagraphs = if (current.currentChapterIndex < chapters.size) {
+            chapters[current.currentChapterIndex].paragraphs
+        } else {
+            emptyList()
+        }
+
+        if (current.currentParagraphIndex < currentChapterParagraphs.size - 1) {
+            // Proximo parágrafo do mesmo capítulo
+            play(current.currentChapterIndex, current.currentParagraphIndex + 1)
+        } else if (current.currentChapterIndex < chapters.size - 1) {
+            // Proximo capítulo - inicia do primeiro parágrafo
+            play(current.currentChapterIndex + 1, 0)
+        } else {
+            Log.d(TAG, "Ja estamos no final do ultimo capítulo - reprodução concluída")
+            _state.value = _state.value.copy(isPlaying = false)
+        }
+    }
+
+    /**
+     * Retorna para o
+     * Se ja estiver no inicio do capítulo, volta para o
+     */
+    fun previousParagraph() {
+        val current = _state.value
+
+        if (current.currentParagraphIndex > 0) {
+            // Paragrafo anterior do mesmo capítulo
+            play(current.currentChapterIndex, current.currentParagraphIndex - 1)
+        } else if (current.currentChapterIndex > 0) {
+            // Volta para o ultimo parágrafo do capítulo anterior
+            val prevChapter = chapters[current.currentChapterIndex - 1]
+            play(current.currentChapterIndex - 1, prevChapter.paragraphs.size - 1)
+        } else {
+            Log.d(TAG, "Ja estamos no inicio da leitura - nemhem para retornar")
+        }
+    }
+
+    /**
+     * Limpa todos o recursos liberados pelo player.
+     * Deve ser chamado quando o usuario sair da tela de leitura.
+     */
+    fun release() {
+        Log.d(TAG, "Release EpubTtsPlayer")
+        stop()
+        synthesizer.release()
+        scope.cancel()
+    }
+}
