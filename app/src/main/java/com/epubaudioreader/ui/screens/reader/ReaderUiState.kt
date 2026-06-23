@@ -7,7 +7,9 @@ data class ReaderUiState(
     val error: String? = null,
     val currentParagraphIndex: Int = 0,
     val isTtsPlaying: Boolean = false,
-    val isTtsPrepared: Boolean = false,
     val isTtsPreparing: Boolean = false,
-    val ttsError: String? = null
+    val ttsError: String? = null,
+    val isModelReady: Boolean = false,
+    val currentSpeakingParagraph: Int = -1,
+    val copyProgress: Float = 0f
 )

@@ -1,16 +1,16 @@
 package com.epubaudioreader.ui.screens.reader
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.domain.usecase.reader.GetChapterContentUseCase
 import com.epubaudioreader.core.domain.usecase.reader.SaveProgressUseCase
-import com.epubaudioreader.core.tts.model.ModelAssetLoader
-import com.epubaudioreader.core.tts.model.ModelLoadState
-import com.epubaudioreader.core.tts.playback.PlaybackCoordinator
+import com.epubaudioreader.core.tts.engine.TtsEngine
+import com.epubaudioreader.core.tts.model.ModelManager
+import com.epubaudioreader.core.tts.model.ModelState
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,21 +27,20 @@ import javax.inject.Inject
 class ReaderViewModel @Inject constructor(
     private val getChapterContentUseCase: GetChapterContentUseCase,
     private val saveProgressUseCase: SaveProgressUseCase,
-    private val playbackCoordinator: PlaybackCoordinator,
-    private val modelLoader: ModelAssetLoader,
+    private val modelManager: ModelManager,
+    private val ttsEngine: TtsEngine,
     private val synthesizer: TtsSynthesizer
 ) : ViewModel() {
-
-    companion object {
-        private const val TAG = "ReaderViewModel"
-    }
 
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     private var currentBookId: Long = 0L
     private var currentChapterId: Long = 0L
+
     private val progressFlow = MutableStateFlow<Triple<Long, Long, Int>?>(null)
+
+    private var ttsJob: Job? = null
 
     init {
         progressFlow
@@ -54,39 +53,50 @@ class ReaderViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
-        // Observar estado do playback
         viewModelScope.launch {
-            playbackCoordinator.state.collect { playbackState ->
-                _uiState.update {
-                    it.copy(
-                        isTtsPlaying = playbackState.isPlaying,
-                        currentParagraphIndex = playbackState.currentSegmentIndex,
-                        ttsError = playbackState.error
-                    )
-                }
-            }
+            observeModelState()
+            modelManager.checkExistingModel()
         }
+    }
 
-        // Observar estado de preparacao do modelo TTS
-        viewModelScope.launch {
-            modelLoader.state.collect { state ->
-                val isPrepared = state is ModelLoadState.Ready
-                val isPreparing = state is ModelLoadState.Loading || state is ModelLoadState.Copying
-                _uiState.update {
-                    it.copy(
-                        isTtsPrepared = isPrepared,
-                        isTtsPreparing = isPreparing,
-                        ttsError = if (state is ModelLoadState.Error) state.message else it.ttsError
-                    )
+    private suspend fun observeModelState() {
+        modelManager.state.collect { state ->
+            when (state) {
+                is ModelState.NotDownloaded -> {
+                    _uiState.update { it.copy(isModelReady = false) }
+                }
+                is ModelState.Copying -> {
+                    _uiState.update {
+                        it.copy(isTtsPreparing = true, copyProgress = state.percent / 100f)
+                    }
+                }
+                is ModelState.Ready -> {
+                    val initialized = ttsEngine.initialize(state.modelDir)
+                    _uiState.update {
+                        it.copy(
+                            isModelReady = initialized,
+                            isTtsPreparing = false,
+                            ttsError = if (!initialized) "Falha ao inicializar engine TTS" else null
+                        )
+                    }
+                }
+                is ModelState.Error -> {
+                    _uiState.update {
+                        it.copy(
+                            isTtsPreparing = false,
+                            isModelReady = false,
+                            ttsError = state.message
+                        )
+                    }
+                }
+                is ModelState.Initializing -> {
+                    _uiState.update { it.copy(isTtsPreparing = true) }
                 }
             }
         }
     }
 
     fun loadChapter(bookId: Long, chapterId: Long) {
-        // Parar TTS ao mudar de capitulo
-        playbackCoordinator.stop()
-
         currentBookId = bookId
         currentChapterId = chapterId
         viewModelScope.launch {
@@ -104,13 +114,18 @@ class ReaderViewModel @Inject constructor(
                     }
                 } else {
                     _uiState.update {
-                        it.copy(isLoading = false, error = "Capitulo nao encontrado")
+                        it.copy(
+                            isLoading = false,
+                            error = "Capitulo nao encontrado"
+                        )
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Erro: ${e.message}", e)
                 _uiState.update {
-                    it.copy(isLoading = false, error = e.message ?: "Erro ao carregar")
+                    it.copy(
+                        isLoading = false,
+                        error = e.message ?: "Erro ao carregar capitulo"
+                    )
                 }
             }
         }
@@ -121,75 +136,104 @@ class ReaderViewModel @Inject constructor(
         if (currentBookId != 0L && currentChapterId != 0L) {
             progressFlow.value = Triple(currentBookId, currentChapterId, index)
         }
+
+        // Se TTS estiver tocando e o paragrafo visivel mudou, reinicia a partir do novo paragrafo
+        if (_uiState.value.isTtsPlaying && index != _uiState.value.currentSpeakingParagraph) {
+            startTtsFromCurrentParagraph()
+        }
     }
 
     fun toggleTts() {
-        val paragraphs = _uiState.value.paragraphs
-        if (paragraphs.isEmpty()) return
-
         if (_uiState.value.isTtsPlaying) {
-            playbackCoordinator.pause()
-            return
+            stopTts()
+        } else {
+            startTtsFromCurrentParagraph()
         }
+    }
 
-        viewModelScope.launch {
-            if (!_uiState.value.isTtsPrepared) {
-                _uiState.update { it.copy(isTtsPreparing = true, ttsError = null) }
-                val prepared = prepareTts()
-                if (!prepared) {
-                    _uiState.update { it.copy(isTtsPreparing = false) }
+    private fun startTtsFromCurrentParagraph() {
+        ttsJob?.cancel()
+        ttsJob = viewModelScope.launch {
+            // Garante que o modelo esteja pronto
+            if (!_uiState.value.isModelReady) {
+                _uiState.update { it.copy(isTtsPreparing = true) }
+                val ready = modelManager.ensureModelReady()
+                if (!ready) {
+                    _uiState.update {
+                        it.copy(
+                            isTtsPreparing = false,
+                            ttsError = "Modelo TTS não está disponível"
+                        )
+                    }
                     return@launch
                 }
             }
 
-            _uiState.update { it.copy(isTtsPreparing = false, ttsError = null) }
-            playbackCoordinator.playParagraphs(
-                paragraphs = paragraphs,
-                startIndex = _uiState.value.currentParagraphIndex
+            // Inicializa o engine se necessario
+            if (!ttsEngine.isInitialized) {
+                val modelDir = modelManager.modelDir.absolutePath
+                val ok = ttsEngine.initialize(modelDir)
+                _uiState.update {
+                    it.copy(
+                        isModelReady = ok,
+                        isTtsPreparing = false,
+                        ttsError = if (!ok) "Falha ao inicializar engine TTS" else null
+                    )
+                }
+                if (!ok) return@launch
+            }
+
+            _uiState.update { it.copy(isTtsPlaying = true, isTtsPreparing = false) }
+
+            val paragraphs = _uiState.value.paragraphs
+            var startIndex = _uiState.value.currentParagraphIndex.coerceIn(
+                0,
+                paragraphs.size - 1
+            )
+
+            // Reproduz paragrafo por paragrafo
+            while (isActive && startIndex < paragraphs.size) {
+                _uiState.update { it.copy(currentSpeakingParagraph = startIndex) }
+
+                val result = synthesizer.speak(paragraphs[startIndex])
+                result.onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isTtsPlaying = false,
+                            ttsError = error.message
+                        )
+                    }
+                    return@launch
+                }
+
+                startIndex++
+            }
+
+            // Fim da reproducao natural
+            _uiState.update {
+                it.copy(
+                    isTtsPlaying = false,
+                    currentSpeakingParagraph = -1
+                )
+            }
+        }
+    }
+
+    private fun stopTts() {
+        ttsJob?.cancel()
+        ttsJob = null
+        synthesizer.stop()
+        _uiState.update {
+            it.copy(
+                isTtsPlaying = false,
+                currentSpeakingParagraph = -1
             )
         }
     }
 
-    private suspend fun prepareTts(): Boolean {
-        return try {
-            if (modelLoader.state.value is ModelLoadState.Ready) {
-                // Ja pronto; garante AudioTrack inicializado
-                if (synthesizer.isAudioTrackInitialized()) {
-                    return true
-                }
-            }
-
-            val success = modelLoader.prepareModel()
-            if (success) {
-                try {
-                    synthesizer.initAudioTrack()
-                    synthesizer.startPlayback()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Erro ao iniciar AudioTrack: ${e.message}", e)
-                    _uiState.update { it.copy(ttsError = "Erro ao iniciar audio: ${e.message}") }
-                    return false
-                }
-            }
-            success
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao preparar TTS: ${e.message}", e)
-            _uiState.update { it.copy(ttsError = e.message ?: "Erro ao preparar TTS") }
-            false
-        }
-    }
-
-    fun stopTts() {
-        playbackCoordinator.stop()
-    }
-
-    fun dismissTtsError() {
-        _uiState.update { it.copy(ttsError = null) }
-    }
-
     override fun onCleared() {
         super.onCleared()
-        playbackCoordinator.release()
-        // NAO liberar o engine nem o synthesizer aqui: eles sao singletons
-        // compartilhados com outras telas (ex: TtsTestScreen).
+        ttsJob?.cancel()
+        synthesizer.stop()
     }
 }
