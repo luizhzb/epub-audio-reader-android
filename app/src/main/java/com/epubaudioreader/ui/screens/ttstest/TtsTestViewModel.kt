@@ -4,22 +4,17 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.tts.engine.TtsEngine
-import com.epubaudioreader.core.tts.model.ModelManager
-import com.epubaudioreader.core.tts.model.ModelState
+import com.epubaudioreader.core.tts.model.ModelAssetLoader
+import com.epubaudioreader.core.tts.model.ModelLoadState
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class TtsTestViewModel @Inject constructor(
-    private val modelManager: ModelManager,
+    private val modelLoader: ModelAssetLoader,
     private val ttsEngine: TtsEngine,
     private val synthesizer: TtsSynthesizer
 ) : ViewModel() {
@@ -28,124 +23,110 @@ class TtsTestViewModel @Inject constructor(
         private const val TAG = "TtsTestViewModel"
     }
 
-    private val _uiState = MutableStateFlow(TtsTestUiState())
-    val uiState: StateFlow<TtsTestUiState> = _uiState.asStateFlow()
+    val uiState = kotlinx.coroutines.flow.MutableStateFlow(TtsTestUiState())
 
     private var speakJob: Job? = null
 
     init {
+        // Observar estado do modelo
         viewModelScope.launch {
-            observeModelState()
-        }
-        viewModelScope.launch {
-            delay(300)
-            modelManager.checkExistingModel()
-        }
-    }
-
-    private suspend fun observeModelState() {
-        modelManager.state.collect { state ->
-            when (state) {
-                is ModelState.NotDownloaded -> {
-                    _uiState.update { it.copy(modelStatus = ModelStatus.NOT_DOWNLOADED) }
-                }
-                is ModelState.Copying -> {
-                    _uiState.update {
-                        it.copy(
-                            modelStatus = ModelStatus.COPYING,
-                            copyProgress = state.percent / 100f
-                        )
+            modelLoader.state.collect { state ->
+                val status = when (state) {
+                    is ModelLoadState.NotLoaded -> ModelStatus.NOT_LOADED
+                    is ModelLoadState.Copying -> ModelStatus.COPYING
+                    is ModelLoadState.Loading -> ModelStatus.LOADING
+                    is ModelLoadState.Ready -> {
+                        // Inicializar AudioTrack quando TTS fica pronto
+                        try {
+                            synthesizer.initAudioTrack()
+                            synthesizer.startPlayback()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Erro ao iniciar AudioTrack: ${e.message}", e)
+                        }
+                        ModelStatus.READY
                     }
+                    is ModelLoadState.Error -> ModelStatus.ERROR
                 }
-                is ModelState.Initializing -> {
-                    _uiState.update { it.copy(modelStatus = ModelStatus.INITIALIZING) }
-                }
-                is ModelState.Ready -> {
-                    _uiState.update { it.copy(modelStatus = ModelStatus.INITIALIZING) }
-                    val initialized = ttsEngine.initialize(state.modelDir)
-                    _uiState.update {
-                        it.copy(
-                            modelStatus = if (initialized) ModelStatus.READY else ModelStatus.ERROR,
-                            error = if (!initialized) "Falha ao inicializar TTS" else null
-                        )
-                    }
-                }
-                is ModelState.Error -> {
-                    _uiState.update {
-                        it.copy(modelStatus = ModelStatus.ERROR, error = state.message)
-                    }
-                }
+                uiState.value = uiState.value.copy(
+                    modelStatus = status,
+                    copyProgress = if (state is ModelLoadState.Copying) state.percent / 100f else uiState.value.copyProgress,
+                    error = if (state is ModelLoadState.Error) state.message else uiState.value.error
+                )
             }
+        }
+
+        viewModelScope.launch {
+            modelLoader.checkExistingModel()
         }
     }
 
     fun prepareModel() {
         viewModelScope.launch {
-            _uiState.update { it.copy(error = null) }
-            val success = modelManager.ensureModelReady()
-            if (!success) {
-                Log.w(TAG, "ensureModelReady() retornou false")
-            }
+            uiState.value = uiState.value.copy(error = null)
+            modelLoader.prepareModel()
         }
     }
 
     fun onTextChange(text: String) {
-        _uiState.update { it.copy(text = text) }
+        uiState.value = uiState.value.copy(text = text)
     }
 
     fun speak() {
         speakJob?.cancel()
         speakJob = viewModelScope.launch {
-            val text = _uiState.value.text
+            val text = uiState.value.text
             if (text.isBlank()) return@launch
 
             if (synthesizer.isPlaying) {
                 synthesizer.stop()
-                _uiState.update { it.copy(isPlaying = false) }
+                uiState.value = uiState.value.copy(isPlaying = false)
                 return@launch
             }
 
-            _uiState.update { it.copy(isPlaying = true, error = null) }
+            uiState.value = uiState.value.copy(isPlaying = true, error = null)
 
             try {
                 if (!ttsEngine.isInitialized) {
-                    val modelDir = modelManager.modelDir.absolutePath
-                    val ok = ttsEngine.initialize(modelDir)
-                    if (!ok) {
-                        _uiState.update {
-                            it.copy(isPlaying = false, error = "Falha ao inicializar TTS")
-                        }
+                    val prepared = modelLoader.prepareModel()
+                    if (!prepared) {
+                        uiState.value = uiState.value.copy(
+                            isPlaying = false,
+                            error = "Falha ao preparar modelo TTS"
+                        )
                         return@launch
                     }
                 }
 
                 val result = synthesizer.speak(text, onComplete = {
                     viewModelScope.launch {
-                        _uiState.update { it.copy(isPlaying = false) }
+                        uiState.value = uiState.value.copy(isPlaying = false)
                     }
                 })
 
                 result.onFailure { e ->
-                    _uiState.update {
-                        it.copy(isPlaying = false, error = e.message ?: "Erro na sintese")
-                    }
+                    uiState.value = uiState.value.copy(
+                        isPlaying = false,
+                        error = e.message ?: "Erro na sintese"
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Erro em speak: ${e.message}", e)
-                _uiState.update {
-                    it.copy(isPlaying = false, error = e.message ?: "Erro desconhecido")
-                }
+                uiState.value = uiState.value.copy(
+                    isPlaying = false,
+                    error = e.message ?: "Erro desconhecido"
+                )
             }
         }
     }
 
     fun dismissError() {
-        _uiState.update { it.copy(error = null) }
+        uiState.value = uiState.value.copy(error = null)
     }
 
     override fun onCleared() {
         super.onCleared()
         speakJob?.cancel()
         synthesizer.stop()
+        ttsEngine.release()
     }
 }
