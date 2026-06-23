@@ -30,7 +30,7 @@ class ModelAssetLoader @Inject constructor(
 ) {
     companion object {
         private const val TAG = "ModelAssetLoader"
-        private const val DATA_DIR = "vits-piper-en_US-amy-low/espeak-ng-data"
+        private const val DATA_DIR = "vits-piper-pt_BR-faber-medium/espeak-ng-data"
     }
 
     private val _state = MutableStateFlow<ModelLoadState>(ModelLoadState.NotLoaded)
@@ -53,7 +53,7 @@ class ModelAssetLoader @Inject constructor(
             val assets = assetManager.list("") ?: emptyArray()
 
             // Verificar se o diretorio do modelo existe nos assets
-            val modelAssets = assetManager.list("vits-piper-en_US-amy-low") ?: emptyArray()
+            val modelAssets = assetManager.list("vits-piper-pt_BR-faber-medium") ?: emptyArray()
             if (modelAssets.isEmpty()) {
                 Log.e(TAG, "Modelo NAO encontrado nos assets!")
                 Log.e(TAG, "Assets disponiveis: ${assets.toList()}")
