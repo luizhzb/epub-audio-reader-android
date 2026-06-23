@@ -1,9 +1,12 @@
-name: Build APK
+name: Build APK + Release
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -26,12 +29,50 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
       - name: Build Debug APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Upload APK
+      - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v0.2.0-fase2
+          name: "Fase 2 - Kokoro Offline TTS"
+          body: |
+            ## EPUB Audio Reader - Fase 2
+
+            ### Novidades
+            - TTS Offline com Sherpa-ONNX + Kokoro
+            - Tela de teste "Testar Voz"
+            - Download de modelo pt-BR na primeira execucao
+            - Sintese de voz 100% offline
+
+            ### Tamanho
+            - APK: ~77 MB (inclui bibliotecas nativas Sherpa-ONNX)
+
+            ### Como usar
+            1. Instale o APK
+            2. Abra o app
+            3. Toque no icone de voz na barra superior (Biblioteca)
+            4. Baixe o modelo de voz
+            5. Digite um texto e toque "Testar Voz"
+
+            ### Requisitos
+            - Android 8.0+ (API 26)
+            - Conexao Wi-Fi para download inicial do modelo
+            - Apos o download, funciona 100% offline
+          files: app/build/outputs/apk/debug/app-debug.apk
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
