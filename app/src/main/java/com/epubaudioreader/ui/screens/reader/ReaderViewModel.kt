@@ -112,7 +112,7 @@ class ReaderViewModel @Inject constructor(
         } else {
             playbackCoordinator.playParagraphs(
                 paragraphs = paragraphs,
-                startParagraph = _uiState.value.currentParagraphIndex
+                startIndex = _uiState.value.currentParagraphIndex
             )
         }
     }
