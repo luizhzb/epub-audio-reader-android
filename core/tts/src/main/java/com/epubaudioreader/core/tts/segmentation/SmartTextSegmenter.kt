@@ -5,31 +5,25 @@ import javax.inject.Singleton
 
 /**
  * Segmentador inteligente de texto para TTS.
- * Recebe lista de paragrafos e retorna segmentos coerentes.
- * Preserva estrutura: paragrafos, dialogos, headings.
+ * Preserva estrutura textual: paragrafos, dialogos, headings.
  * Nao quebra no meio de frases.
  */
 @Singleton
 class SmartTextSegmenter @Inject constructor() {
 
+    companion object {
+        private const val MAX_CHARS_DEFAULT = 500
+    }
+
     /**
      * Segmenta paragrafos em blocos coerentes para TTS.
-     * @param paragraphs Lista de paragrafos do capitulo
-     * @param maxChars Tamanho maximo ideal por segmento (soft limit)
-     * @param chapterIndex Indice do capitulo
-     * @return Lista de segmentos ordenados
      */
-    fun segment(
-        paragraphs: List<String>,
-        maxChars: Int = 500,
-        chapterIndex: Int = 0
-    ): List<TextSegment> {
+    fun segment(paragraphs: List<String>, maxChars: Int = MAX_CHARS_DEFAULT, chapterIndex: Int = 0): List<TextSegment> {
         if (paragraphs.isEmpty()) return emptyList()
 
         val segments = mutableListOf<TextSegment>()
         var segmentId = 0
         val buffer = StringBuilder()
-        var currentParagraphIndex = 0
         var startParagraphIndex = 0
 
         for ((pIndex, paragraph) in paragraphs.withIndex()) {
@@ -40,128 +34,107 @@ class SmartTextSegmenter @Inject constructor() {
 
             // Headings sempre sao segmentos individuais
             if (type == SegmentType.HEADING) {
-                // Flush buffer atual
                 if (buffer.isNotEmpty()) {
-                    segments.add(
-                        TextSegment(
-                            id = segmentId++,
-                            text = buffer.toString().trim(),
-                            type = SegmentType.PARAGRAPH,
-                            chapterIndex = chapterIndex,
-                            paragraphIndex = startParagraphIndex
-                        )
-                    )
-                    buffer.clear()
-                }
-                segments.add(
-                    TextSegment(
-                        id = segmentId++,
-                        text = trimmed,
-                        type = SegmentType.HEADING,
-                        chapterIndex = chapterIndex,
-                        paragraphIndex = pIndex
-                    )
-                )
-                startParagraphIndex = pIndex + 1
-                continue
-            }
-
-            // Dialogos curtos (< maxChars/2) sao segmentos individuais
-            if (type == SegmentType.DIALOGUE && trimmed.length < maxChars / 2) {
-                if (buffer.isNotEmpty()) {
-                    segments.add(
-                        TextSegment(
-                            id = segmentId++,
-                            text = buffer.toString().trim(),
-                            type = SegmentType.PARAGRAPH,
-                            chapterIndex = chapterIndex,
-                            paragraphIndex = startParagraphIndex
-                        )
-                    )
-                    buffer.clear()
-                }
-                segments.add(
-                    TextSegment(
-                        id = segmentId++,
-                        text = trimmed,
-                        type = SegmentType.DIALOGUE,
-                        chapterIndex = chapterIndex,
-                        paragraphIndex = pIndex
-                    )
-                )
-                startParagraphIndex = pIndex + 1
-                continue
-            }
-
-            // Verificar se adicionar este paragrafo ultrapassa maxChars
-            val separator = if (buffer.isNotEmpty()) "\n\n" else ""
-            val candidate = buffer.toString() + separator + trimmed
-
-            if (buffer.isNotEmpty() && candidate.length > maxChars) {
-                // Flush buffer e comecar novo
-                segments.add(
-                    TextSegment(
+                    segments.add(TextSegment(
                         id = segmentId++,
                         text = buffer.toString().trim(),
                         type = SegmentType.PARAGRAPH,
                         chapterIndex = chapterIndex,
                         paragraphIndex = startParagraphIndex
-                    )
-                )
-                buffer.clear()
-                buffer.append(trimmed)
-                startParagraphIndex = pIndex
-            } else {
-                buffer.append(separator)
-                buffer.append(trimmed)
+                    ))
+                    buffer.clear()
+                }
+                segments.add(TextSegment(
+                    id = segmentId++,
+                    text = trimmed,
+                    type = SegmentType.HEADING,
+                    chapterIndex = chapterIndex,
+                    paragraphIndex = pIndex
+                ))
+                startParagraphIndex = pIndex + 1
+                continue
             }
 
-            currentParagraphIndex = pIndex
-        }
+            // Dialogos curtos sao segmentos individuais
+            if (type == SegmentType.DIALOGUE && trimmed.length < maxChars / 2) {
+                if (buffer.isNotEmpty()) {
+                    segments.add(TextSegment(
+                        id = segmentId++,
+                        text = buffer.toString().trim(),
+                        type = SegmentType.PARAGRAPH,
+                        chapterIndex = chapterIndex,
+                        paragraphIndex = startParagraphIndex
+                    ))
+                    buffer.clear()
+                }
+                segments.add(TextSegment(
+                    id = segmentId++,
+                    text = trimmed,
+                    type = SegmentType.DIALOGUE,
+                    chapterIndex = chapterIndex,
+                    paragraphIndex = pIndex
+                ))
+                startParagraphIndex = pIndex + 1
+                continue
+            }
 
-        // Flush buffer final
-        if (buffer.isNotEmpty()) {
-            segments.add(
-                TextSegment(
+            // Verificar se adicionar ultrapassa maxChars
+            val separator = if (buffer.isNotEmpty()) "\n\n" else ""
+            val candidate = buffer.toString() + separator + trimmed
+
+            if (buffer.isNotEmpty() && candidate.length > maxChars) {
+                segments.add(TextSegment(
                     id = segmentId++,
                     text = buffer.toString().trim(),
                     type = SegmentType.PARAGRAPH,
                     chapterIndex = chapterIndex,
                     paragraphIndex = startParagraphIndex
-                )
-            )
+                ))
+                buffer.clear()
+                buffer.append(trimmed)
+                startParagraphIndex = pIndex
+            } else {
+                buffer.append(if (buffer.isEmpty()) "" else "\n\n")
+                buffer.append(trimmed)
+            }
+        }
+
+        // Flush buffer final
+        if (buffer.isNotEmpty()) {
+            segments.add(TextSegment(
+                id = segmentId++,
+                text = buffer.toString().trim(),
+                type = SegmentType.PARAGRAPH,
+                chapterIndex = chapterIndex,
+                paragraphIndex = startParagraphIndex
+            ))
         }
 
         return segments
     }
 
-    /**
-     * Classifica um paragrafo como PARAGRAPH, DIALOGUE ou HEADING.
-     */
     private fun classifyParagraph(text: String): SegmentType {
-        // Heading: curto, sem ponto final, ou com marcadores
         val clean = text.trim()
+
+        // Heading: curto, sem ponto final
         if (clean.length < 80 && !clean.endsWith('.')) {
-            // Verificar se e numerado (ex: "1.", "I.", "Capitulo 1")
-            if (clean.matches(Regex("""^(\d+\.?|[IVXivx]+\.?|Cap[íi]tulo\s+\d+|Chapter\s+\d+).*"""))) {
+            if (clean.matches(Regex("^(\d+\.?|[IVXivx]+\.?|Capitulo\s+\d+|Chapter\s+\d+).*"))) {
                 return SegmentType.HEADING
             }
-            // Se for uma unica frase sem ponto final, pode ser heading
             if (!clean.contains('.') && clean.length < 60) {
                 return SegmentType.HEADING
             }
         }
 
-        // Dialogo: comecado com "- ", aspas, ou " dialogo "
-        val dialogPatterns = listOf(
-            Regex("""^["']"""),  // Comeca com aspas
-            Regex("""^[-—–]\s+"""),  // Comeca com traco ou em-dash
-            Regex("""^\w+\s+(disse|falou|perguntou|respondeu)[,;:]"""),  // "Joao disse:"
-        )
-        for (pattern in dialogPatterns) {
-            if (pattern.containsMatchIn(clean)) {
-                return SegmentType.DIALOGUE
-            }
+        // Dialogo
+        if (clean.startsWith("\"") || clean.startsWith("'") ||
+            clean.startsWith("- ") || clean.startsWith("- ")) {
+            return SegmentType.DIALOGUE
+        }
+
+        val dialogWords = listOf("disse", "falou", "perguntou", "respondeu")
+        for (word in dialogWords) {
+            if (clean.contains(" $word ")) return SegmentType.DIALOGUE
         }
 
         return SegmentType.PARAGRAPH
