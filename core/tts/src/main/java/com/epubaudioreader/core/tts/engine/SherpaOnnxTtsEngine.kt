@@ -18,9 +18,9 @@ class SherpaOnnxTtsEngine @Inject constructor(
 
     companion object {
         private const val TAG = "SherpaOnnxTtsEngine"
-        private const val MODEL_DIR = "vits-piper-en_US-amy-low"
-        private const val MODEL_NAME = "en_US-amy-low.onnx"
-        private const val DATA_DIR = "vits-piper-en_US-amy-low/espeak-ng-data"
+        private const val MODEL_DIR = "vits-piper-pt_BR-faber-medium"
+        private const val MODEL_NAME = "pt_BR-faber-medium.onnx"
+        private const val DATA_DIR = "vits-piper-pt_BR-faber-medium/espeak-ng-data"
     }
 
     private var tts: OfflineTts? = null
