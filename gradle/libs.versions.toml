@@ -17,6 +17,7 @@ minSdk = "26"
 room = "2.6.1"
 commonsCompress = "1.26.1"
 sherpaOnnx = "1.13.3"
+jsoup = "1.17.2"
 junit = "4.13.2"
 targetSdk = "35"
 
@@ -52,6 +53,7 @@ room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 sherpa-onnx = { group = "com.github.k2-fsa", name = "sherpa-onnx", version.ref = "sherpaOnnx" }
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 
 [bundles]
 compose = ["compose-ui", "compose-ui-graphics", "compose-ui-tooling-preview", "compose-material3", "compose-material-icons-extended"]
