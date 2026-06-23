@@ -99,12 +99,15 @@ fun TtsTestScreen(
             when (uiState.modelStatus) {
                 ModelStatus.NOT_DOWNLOADED -> {
                     DownloadSection(
-                        onDownloadClick = { viewModel.downloadModel() }
+                        onPrepareClick = { viewModel.prepareModel() }
                     )
                 }
 
-                ModelStatus.DOWNLOADING -> {
-                    DownloadingSection(progress = uiState.downloadProgress)
+                ModelStatus.COPYING -> {
+                    CopyingSection(progress = uiState.copyProgress)
+                }
+                ModelStatus.INITIALIZING -> {
+                    InitializingSection()
                 }
 
                 ModelStatus.INITIALIZING -> {
@@ -122,7 +125,7 @@ fun TtsTestScreen(
 
                 ModelStatus.ERROR -> {
                     ErrorSection(
-                        onRetryClick = { viewModel.downloadModel() }
+                        onRetryClick = { viewModel.prepareModel() }
                     )
                 }
             }
@@ -149,8 +152,8 @@ private fun StatusCard(
     modifier: Modifier = Modifier
 ) {
     val (statusLabel, statusColor) = when (uiState.modelStatus) {
-        ModelStatus.NOT_DOWNLOADED -> "Modelo nao baixado" to MaterialTheme.colorScheme.error
-        ModelStatus.DOWNLOADING -> "Baixando modelo..." to MaterialTheme.colorScheme.primary
+        ModelStatus.NOT_DOWNLOADED -> "Modelo nao preparado" to MaterialTheme.colorScheme.error
+        ModelStatus.COPYING -> "Copiando modelo..." to MaterialTheme.colorScheme.primary
         ModelStatus.INITIALIZING -> "Inicializando..." to MaterialTheme.colorScheme.tertiary
         ModelStatus.READY -> "Modelo pronto" to MaterialTheme.colorScheme.primary
         ModelStatus.ERROR -> "Erro" to MaterialTheme.colorScheme.error
@@ -190,7 +193,7 @@ private fun StatusCard(
                 )
             } else if (uiState.modelStatus == ModelStatus.NOT_DOWNLOADED) {
                 Text(
-                    text = "E necessario baixar o modelo de voz para usar o TTS offline.",
+                    text = "O modelo de voz sera copiado dos assets do app (100% offline).",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -202,7 +205,7 @@ private fun StatusCard(
 
 @Composable
 private fun DownloadSection(
-    onDownloadClick: () -> Unit,
+    onPrepareClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -211,7 +214,7 @@ private fun DownloadSection(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Button(
-            onClick = onDownloadClick,
+            onClick = onPrepareClick,
             modifier = Modifier.fillMaxWidth(0.8f)
         ) {
             Icon(
@@ -220,13 +223,13 @@ private fun DownloadSection(
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.size(ButtonDefaults.IconSpacing))
-            Text(text = "Baixar Modelo", style = MaterialTheme.typography.labelLarge)
+            Text(text = "Preparar Modelo", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
 
 @Composable
-private fun DownloadingSection(
+private fun CopyingSection(
     progress: Float,
     modifier: Modifier = Modifier
 ) {
@@ -246,7 +249,7 @@ private fun DownloadingSection(
             color = MaterialTheme.colorScheme.primary
         )
         Text(
-            text = "Baixando modelo de voz...",
+            text = "Copiando modelo de voz...",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
