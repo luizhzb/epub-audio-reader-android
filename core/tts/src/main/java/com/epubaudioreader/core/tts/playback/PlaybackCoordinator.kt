@@ -49,7 +49,7 @@ class PlaybackCoordinator @Inject constructor(
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var playbackJob: Job? = null
     private var segments: List<TextSegment> = emptyList()
 
