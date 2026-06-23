@@ -6,20 +6,20 @@ import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
-import kotlinxx.coroutines.Dispatchers
-import kotlinxx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Engine TTS usando Sherpa-ONXX com modelos VITS/Piper.
+ * Engine TTS usando Sherpa-ONNX com modelos VITS/Piper.
  */
 @Singleton
 class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
 
     companion object {
-        private const tag TAG = "SherpaOnlxTTS"
+        private const val TAG = "SherpaOnnxTTS"
     }
 
     private var tts: OfflineTts? = null
@@ -30,11 +30,6 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
     override val sampleRate: Int
         get() = tts?.sampleRate() ?: 22050
 
-    /**
-     * Inicializa o TTS com o modelo do diretorio especificado.
-     *
-     * @param modelDir Diretorio contendo model.onnx e model.onnx.json
-     */
     override suspend fun initialize(modelDir: String): Boolean = withContext(Dispatchers.IO) {
         Log.d(TAG, "Inicializando com dir=$modelDir")
 
@@ -52,31 +47,28 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
             }
 
             if (!configFile.exists()) {
-                Log.w(TAG, "AVISO: model.onnx.json NAO encontrado – modelo pode nao funcionar corretamente")
+                Log.w(TAG, "AVISO: model.onnx.json NAO encontrado - modelo pode nao funcionar corretamente")
             }
 
-            // Verificar tamanho minimo do modelo (evita arquivo vazio/corrompido)
             val modelSize = modelFile.length()
             Log.d(TAG, "Tamanho do modelo: $modelSize bytes (${modelSize / (1024 * 1024)} MB)")
             if (modelSize < 1024 * 1024) {
-                Log.e(TAG, "ERRO: model.onnx muito pequeno ($modelSize bytes) – possivelmente corrompido")
+                Log.e(TAG, "ERRO: model.onnx muito pequeno ($modelSize bytes) - possivelmente corrompido")
                 return@withContext false
             }
 
-            // Liberar instancia anterior se existir
             if (tts != null) {
                 Log.d(TAG, "Liberando instancia TTS anterior")
                 tts?.release()
                 tts = null
             }
 
-            // Config para modelo VITS/Piper
             Log.d(TAG, "Criando OfflineTtsConfig...")
             val modelConfig = OfflineTtsModelConfig(
                 vits = OfflineTtsVitsModelConfig(
                     model = modelFile.absolutePath,
-                    tokens = "",  // Piper nao usa tokens.txt separado
-                    dataDir = "",  // embedded no modelo
+                    tokens = "",
+                    dataDir = "",
                     dictDir = "",
                     lexicon = ""
                 ),
@@ -103,7 +95,6 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
             }
             return@withContext success
 
-
         } catch (e: Exception) {
             Log.e(TAG, "ERRO ao inicializar TTS: ${e.message}", e)
             tts = null
@@ -111,10 +102,6 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
         }
     }
 
-    /**
-     * Sintetiza texto em audio PCM (float samples).
-     * Agora é suspende e roda em Dispatchers.IO.
-     */
     override suspend fun synthesize(text: String): FloatArray? = withContext(Dispatchers.IO) {
         val engine = tts ?: return@withContext null
         return@withContext try {
