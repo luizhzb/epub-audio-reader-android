@@ -44,7 +44,7 @@ data class TtsPlaybackState(
  * @param synthesizer Sintetizador para reprodução.
  */
 @Singleton
-class EpubTtsPlayer @@Inject constructor(
+class EpubTtsPlayer @Inject constructor(
     private val modelManager: ModelManager,
     private val ttsEngine: TtsEngine,
     private val synthesizer: TtsSynthesizer
