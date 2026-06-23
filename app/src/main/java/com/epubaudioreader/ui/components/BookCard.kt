@@ -59,9 +59,10 @@ fun BookCard(
                     .fillMaxWidth()
                     .aspectRatio(2f / 3f)
             ) {
-                if (book.coverImagePath != null) {
+                val coverPath = book.coverImagePath
+                if (coverPath != null) {
                     AsyncImage(
-                        model = File(book.coverImagePath),
+                        model = File(coverPath),
                         contentDescription = book.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

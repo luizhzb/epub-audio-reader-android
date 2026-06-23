@@ -129,9 +129,10 @@ internal fun BookDetailContent(
                                 .width(160.dp)
                                 .aspectRatio(2f / 3f)
                         ) {
-                            if (book.coverImagePath != null) {
+                            val coverPath = book.coverImagePath
+                            if (coverPath != null) {
                                 AsyncImage(
-                                    model = File(book.coverImagePath),
+                                    model = File(coverPath),
                                     contentDescription = stringResource(R.string.book_cover_desc),
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
