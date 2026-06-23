@@ -95,7 +95,8 @@ class ModelAssetLoader @Inject constructor(
 
     private fun copyEspeakDataIfNeeded(assetManager: AssetManager) {
         val destDir = context.getExternalFilesDir(null) ?: context.filesDir
-        val dataDirFile = File(destDir, ESPEAK_DATA_DIR)
+        val espeakDataDir = MODEL_DIR + "/espeak-ng-data"
+        val dataDirFile = File(destDir, espeakDataDir)
 
         if (dataDirFile.exists() && dataDirFile.list()?.isNotEmpty() == true) {
             Log.i(TAG, "espeak-ng-data ja existe em $dataDirFile")
@@ -106,7 +107,7 @@ class ModelAssetLoader @Inject constructor(
         _state.value = ModelLoadState.Copying(0)
 
         try {
-            copyAssetsRecursively(assetManager, ESPEAK_DATA_DIR, destDir.absolutePath)
+            copyAssetsRecursively(assetManager, espeakDataDir, destDir.absolutePath)
             Log.i(TAG, "espeak-ng-data copiado com sucesso")
         } catch (e: Exception) {
             Log.w(TAG, "Falha ao copiar espeak-ng-data: ${e.message}")
