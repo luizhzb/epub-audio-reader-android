@@ -1,13 +1,14 @@
 package com.epubaudioreader.core.data.epub.extractor
 
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
-import java.io.StringReader
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
+import org.jsoup.nodes.Node
+import org.jsoup.nodes.TextNode
 import javax.inject.Inject
 
 /**
- * Extracts clean text from XHTML content using streaming XmlPullParser.
- * Preserves paragraph breaks (\n\n), ignores script/style/comment nodes.
+ * Extracts clean text from XHTML content using Jsoup.
+ * Preserves paragraph breaks (\n\n), ignores script/style/head nodes.
  * Decodes common HTML entities.
  */
 class TextExtractor @Inject constructor() {
@@ -15,7 +16,7 @@ class TextExtractor @Inject constructor() {
     private val skipTags = setOf(
         "script", "style", "noscript", "iframe", "canvas",
         "audio", "video", "embed", "object", "svg", "math",
-        "head", "meta", "link", "title", "comment"
+        "head", "meta", "link", "title"
     )
 
     private val blockTags = setOf(
@@ -26,100 +27,66 @@ class TextExtractor @Inject constructor() {
     )
 
     fun extract(xhtml: String): String {
-        // Pre-process: remove HTML comments to avoid parser issues
-        val cleaned = xhtml.replace(Regex("""<!--.*?-->""", RegexOption.DOT_MATCHES_ALL), "")
-            .replace(Regex("""<\?xml[^?]*\?>""", RegexOption.IGNORE_CASE), "")
+        if (xhtml.isBlank()) return ""
 
-        if (cleaned.isBlank()) return ""
-
+        val document = Jsoup.parse(xhtml)
         val result = StringBuilder()
-        var skipDepth = 0
-        var lastWasBlock = true // start true to avoid leading newline
+        var lastWasBlock = true
 
-        try {
-            val factory = XmlPullParserFactory.newInstance().apply {
-                isNamespaceAware = true
-            }
-            val parser = factory.newPullParser()
-            parser.setInput(StringReader(cleaned))
+        fun appendText(text: String) {
+            val normalized = text.replace("""\s+""".toRegex(), " ").trim()
+            if (normalized.isBlank()) return
 
-            var eventType = parser.eventType
-            while (eventType != XmlPullParser.END_DOCUMENT) {
-                when (eventType) {
-                    XmlPullParser.START_TAG -> {
-                        val tagName = parser.name?.lowercase() ?: ""
-                        if (skipTags.contains(tagName)) {
-                            skipDepth++
-                        } else if (skipDepth == 0) {
-                            if (blockTags.contains(tagName)) {
-                                if (!lastWasBlock && result.isNotEmpty()) {
-                                    result.append("\n\n")
-                                    lastWasBlock = true
-                                }
-                            }
-                            if (tagName == "br" || tagName == "hr") {
-                                result.append("\n")
-                                lastWasBlock = true
-                            }
-                            if (tagName == "img" || tagName == "image") {
-                                val alt = parser.getAttributeValue(null, "alt")
-                                if (!alt.isNullOrBlank()) {
-                                    if (result.isNotEmpty() && !lastWasBlock) {
-                                        result.append(" ")
-                                    }
-                                    result.append(alt)
-                                    lastWasBlock = false
-                                }
-                            }
-                        }
-                    }
-                    XmlPullParser.TEXT -> {
-                        if (skipDepth == 0) {
-                            val text = parser.text ?: ""
-                            // Decode HTML entities and normalize whitespace
-                            val decoded = decodeHtmlEntities(text)
-                            val normalized = decoded.replace("""\s+""".toRegex(), " ")
-                            if (normalized.isNotBlank()) {
-                                if (result.isNotEmpty() && !lastWasBlock && result.last() != ' ') {
-                                    result.append(" ")
-                                }
-                                result.append(normalized.trim())
-                                lastWasBlock = false
-                            }
-                        }
-                    }
-                    XmlPullParser.END_TAG -> {
-                        val tagName = parser.name?.lowercase() ?: ""
-                        if (skipTags.contains(tagName)) {
-                            skipDepth = (skipDepth - 1).coerceAtLeast(0)
-                        } else if (skipDepth == 0) {
-                            if (blockTags.contains(tagName)) {
-                                if (!lastWasBlock && result.isNotEmpty()) {
-                                    result.append("\n\n")
-                                    lastWasBlock = true
-                                }
-                            }
-                        }
-                    }
-                }
-                eventType = parser.next()
+            if (result.isNotEmpty() && !lastWasBlock && result.last() != ' ') {
+                result.append(" ")
             }
-        } catch (_: Exception) {
-            // Fallback: strip all tags with regex
-            return fallbackExtract(cleaned)
+            result.append(normalized)
+            lastWasBlock = false
         }
 
-        return result.toString().trim()
-    }
+        fun appendBlockBreak() {
+            if (result.isNotEmpty()) {
+                result.append("\n\n")
+            }
+            lastWasBlock = true
+        }
 
-    private fun fallbackExtract(html: String): String {
-        return html
-            .replace(Regex("<script[^>]*>.*?</script>", RegexOption.DOT_MATCHES_ALL), "")
-            .replace(Regex("<style[^>]*>.*?</style>", RegexOption.DOT_MATCHES_ALL), "")
-            .replace(Regex("<[^>]+>"), " ")
-            .replace("""\s+""".toRegex(), " ")
-            .let { decodeHtmlEntities(it) }
-            .trim()
+        fun appendLineBreak() {
+            if (result.isNotEmpty() && result.last() != '\n') {
+                result.append("\n")
+            }
+            lastWasBlock = true
+        }
+
+        fun walk(node: Node) {
+            when (node) {
+                is TextNode -> appendText(decodeHtmlEntities(node.text()))
+                is Element -> {
+                    val tagName = node.tagName().lowercase()
+                    if (tagName in skipTags) return
+
+                    when {
+                        tagName == "br" -> appendLineBreak()
+                        tagName == "hr" -> appendLineBreak()
+                        tagName == "img" || tagName == "image" -> {
+                            val alt = node.attr("alt")
+                            if (alt.isNotBlank()) appendText(alt)
+                        }
+                        tagName in blockTags -> {
+                            appendBlockBreak()
+                            node.childNodes().forEach(::walk)
+                            lastWasBlock = true
+                        }
+                        else -> node.childNodes().forEach(::walk)
+                    }
+                }
+            }
+        }
+
+        document.body()?.childNodes()?.forEach(::walk)
+            ?: document.childNodes().forEach(::walk)
+
+        return result.toString().trim()
     }
 
     private fun decodeHtmlEntities(text: String): String {
@@ -140,7 +107,7 @@ class TextExtractor @Inject constructor() {
             .replace("&#160;", " ")
             .replace("&#xA0;", " ")
             // Numeric entities
-            .replace(Regex("""&#(\d+);""")) { match ->
+            .replace(Regex("""&#(\\d+);""")) { match ->
                 val code = match.groupValues[1].toIntOrNull() ?: 0
                 if (code in 32..65535) code.toChar().toString() else match.value
             }
