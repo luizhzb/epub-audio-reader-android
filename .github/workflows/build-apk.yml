@@ -27,17 +27,15 @@ jobs:
           python-version: '3.11'
 
       - name: Download TTS Model
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          echo "Downloading TTS model from HuggingFace..."
-          python3 download_model.py --token "$HF_TOKEN"
+          echo "Downloading TTS model from official Sherpa-ONNX release..."
+          python3 download_model.py
           echo ""
           echo "=== Model files ==="
-          ls -lh core/tts/src/main/assets/tts_model/
+          find core/tts/src/main/assets/ -type f | head -20
           echo ""
           echo "Total size:"
-          du -sh core/tts/src/main/assets/tts_model/
+          du -sh core/tts/src/main/assets/
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -64,50 +62,42 @@ jobs:
         uses: dev-drprasad/delete-tag-and-release@v1.0
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v0.3.0
+          tag_name: v0.4.0
           delete_release: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
-      - name: Create Release
+      - name: Create Release v0.4.0
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v0.3.0
-          name: "v0.3.0 - TTS Integrado + Correções"
+          tag_name: v0.4.0
+          name: "v0.4.0 - TTS Refactor (Official API)"
           body: |
-            ## EPUB Audio Reader v0.3.0
+            ## EPUB Audio Reader v0.4.0 - TTS Refatorado
 
-            ### TTS Offline Integrado
-            - TTS com Sherpa-ONNX 100% offline
-            - Modelo empacotado no APK (sem download)
-            - Leitura por parágrafo na tela de EPUB
-            - Controles: play, pause, próximo, anterior
+            ### Refatoracao completa do TTS baseado no codigo oficial do Sherpa-ONNX
+            - Usa `OfflineTts(assetManager, config)` → `newFromAsset()` para carregar modelo diretamente do APK
+            - Usa `generateWithConfigAndCallback()` com callback JNI para playback
+            - AudioTrack com `MODE_STREAM` + `ENCODING_PCM_FLOAT` (igual ao oficial)
+            - Modelo: **vits-piper-en_US-amy-low** (exemplo oficial #2)
 
-            ### Correções de Crash
-            - AudioTrack com MODE_STREAM (estável)
-            - PCM com ENCODING_PCM_FLOAT
-            - Sincronização com callback onComplete
-            - Error handling completo com snackbar
-            - Logging detalhado para debug
-
-            ### Melhorias
-            - Progresso de cópia por bytes (não por arquivo)
-            - Verificação de integridade do modelo (.onnx + .json)
-            - ViewModel init corrigido (corrotinas separadas)
-            - Auto-limpeza de arquivos parciais em erro
+            ### O que mudou
+            - Eliminada copia desnecessaria do modelo para filesystem
+            - Playback via callback JNI (nao carrega tudo em memoria)
+            - Modelo oficial do Sherpa-ONNX (testado e validado)
+            - Sem download HTTP — 100%% offline
 
             ### Como usar
-            1. Instale o APK (~130 MB)
-            2. Abra um EPUB
-            3. Toque no ícone 🔊 (canto inferior direito)
-            4. O app copia o modelo (primeira vez, ~5s)
-            5. A leitura começa automaticamente
+            1. Instale o APK
+            2. Abra o app → Tela de teste TTS
+            3. Toque "Preparar Modelo" (copia espeak-ng-data na primeira vez)
+            4. Toque "Testar Voz"
 
             ### Requisitos
             - Android 8.0+ (API 26)
-            - **100% offline, zero configuração**
+            - **100%% offline**
           files: app/build/outputs/apk/debug/app-debug.apk
           draft: false
           prerelease: false
