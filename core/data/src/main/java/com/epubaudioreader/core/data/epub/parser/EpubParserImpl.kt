@@ -1,9 +1,9 @@
 package com.epubaudioreader.core.data.epub.parser
 
+import com.epubaudioreader.core.common.dispatcher.DispatcherProvider
 import com.epubaudioreader.core.data.epub.model.ParsedEpub
 import com.epubaudioreader.core.data.epub.model.ParsedOpf
 import com.epubaudioreader.core.data.epub.model.TocEntry
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.zip.ZipFile
@@ -13,16 +13,16 @@ class EpubParserImpl @Inject constructor(
     private val containerParser: ContainerParser,
     private val opfParser: OpfParser,
     private val ncxParser: NcxParser,
-    private val navDocParser: NavDocParser
+    private val navDocParser: NavDocParser,
+    private val dispatcher: DispatcherProvider
 ) : EpubParser {
 
-    override suspend fun parse(file: File): ParsedEpub = withContext(Dispatchers.IO) {
+    override suspend fun parse(file: File): ParsedEpub = withContext(dispatcher.io) {
         ZipFile(file).use { zip ->
             val opfPath = containerParser.parse(zip)
             val opfDir = opfPath.substringBeforeLast('/', "")
             val parsedOpf = opfParser.parse(zip, opfPath)
 
-            // Detect and parse TOC
             val toc = parseToc(zip, parsedOpf, opfDir)
 
             ParsedEpub(
@@ -37,7 +37,6 @@ class EpubParserImpl @Inject constructor(
     }
 
     private fun parseToc(zip: ZipFile, opf: ParsedOpf, opfDir: String): List<TocEntry> {
-        // EPUB 3: look for item with properties="nav"
         val navItem = opf.manifest.values.find { it.properties == "nav" }
         if (navItem != null) {
             val navPath = resolvePath(opfDir, navItem.href)
@@ -48,7 +47,6 @@ class EpubParserImpl @Inject constructor(
             }
         }
 
-        // EPUB 2: look for item with media-type NCX
         val ncxItem = opf.manifest.values.find {
             it.mediaType == "application/x-dtbncx+xml"
         }

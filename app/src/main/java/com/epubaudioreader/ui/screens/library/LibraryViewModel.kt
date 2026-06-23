@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.domain.model.ImportProgress
+import com.epubaudioreader.core.common.dispatcher.DispatcherProvider
 import com.epubaudioreader.core.domain.usecase.library.DeleteBookUseCase
 import com.epubaudioreader.core.domain.usecase.library.GetBooksUseCase
 import com.epubaudioreader.core.domain.usecase.library.ImportBookUseCase
@@ -19,13 +20,13 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 import java.io.File
 import javax.inject.Inject
 
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val dispatcher: DispatcherProvider,
     private val getBooksUseCase: GetBooksUseCase,
     private val importBookUseCase: ImportBookUseCase,
     private val deleteBookUseCase: DeleteBookUseCase
@@ -52,8 +53,9 @@ class LibraryViewModel @Inject constructor(
     fun importBook(uri: Uri) {
         viewModelScope.launch {
             _uiState.update { it.copy(importProgress = ImportProgress.Importing("Importando...", 0)) }
+            var tempFile: File? = null
             try {
-                val tempFile = copyUriToTempFile(uri)
+                tempFile = copyUriToTempFile(uri)
                 val fileSize = tempFile.length()
                 when (val result = importBookUseCase(tempFile.absolutePath, fileSize)) {
                     is com.epubaudioreader.core.common.result.Result.Success -> {
@@ -65,11 +67,13 @@ class LibraryViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(importProgress = ImportProgress.Error(e.message ?: "Erro ao importar")) }
+            } finally {
+                tempFile?.delete()
             }
         }
     }
 
-    private suspend fun copyUriToTempFile(uri: Uri): File = withContext(Dispatchers.IO) {
+    private suspend fun copyUriToTempFile(uri: Uri): File = withContext(dispatcher.io) {
         val tempFile = File.createTempFile("epub_import_", ".epub", context.cacheDir)
         context.contentResolver.openInputStream(uri)?.use { input ->
             tempFile.outputStream().use { output ->

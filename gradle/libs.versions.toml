@@ -17,6 +17,7 @@ minSdk = "26"
 room = "2.6.1"
 commonsCompress = "1.26.1"
 sherpaOnnx = "1.13.3"
+junit = "4.13.2"
 targetSdk = "35"
 
 [libraries]
@@ -49,6 +50,7 @@ room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
 sherpa-onnx = { group = "com.github.k2-fsa", name = "sherpa-onnx", version.ref = "sherpaOnnx" }
 
 [bundles]

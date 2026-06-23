@@ -49,7 +49,10 @@ jobs:
         run: yes | sdkmanager --licenses || true
 
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest --stacktrace
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
@@ -62,38 +65,27 @@ jobs:
         uses: dev-drprasad/delete-tag-and-release@v1.0
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v0.4.0
+          tag_name: v0.5.1
           delete_release: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
-      - name: Create Release v0.4.0
+      - name: Create Release v0.5.1
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v0.4.0
-          name: "v0.4.0 - TTS Refactor (Official API)"
+          tag_name: v0.5.1
+          name: "v0.5.1 - EPUB Audio Reader"
           body: |
-            ## EPUB Audio Reader v0.4.0 - TTS Refatorado
+            ## EPUB Audio Reader v0.5.1
 
-            ### Refatoracao completa do TTS baseado no codigo oficial do Sherpa-ONNX
-            - Usa `OfflineTts(assetManager, config)` → `newFromAsset()` para carregar modelo diretamente do APK
-            - Usa `generateWithConfigAndCallback()` com callback JNI para playback
-            - AudioTrack com `MODE_STREAM` + `ENCODING_PCM_FLOAT` (igual ao oficial)
-            - Modelo: **vits-piper-en_US-amy-low** (exemplo oficial #2)
-
-            ### O que mudou
-            - Eliminada copia desnecessaria do modelo para filesystem
-            - Playback via callback JNI (nao carrega tudo em memoria)
-            - Modelo oficial do Sherpa-ONNX (testado e validado)
-            - Sem download HTTP — 100%% offline
-
-            ### Como usar
-            1. Instale o APK
-            2. Abra o app → Tela de teste TTS
-            3. Toque "Preparar Modelo" (copia espeak-ng-data na primeira vez)
-            4. Toque "Testar Voz"
+            ### Funcionalidades
+            - Leitura de EPUB com biblioteca e capítulos
+            - TTS offline com Sherpa-ONNX
+            - Voz em português do Brasil (pt-BR)
+            - Leitura por parágrafo com segmentação inteligente
+            - Prefetch de segmentos para playback contínuo
 
             ### Requisitos
             - Android 8.0+ (API 26)

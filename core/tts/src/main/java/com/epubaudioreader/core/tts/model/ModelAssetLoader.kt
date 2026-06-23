@@ -3,9 +3,9 @@ package com.epubaudioreader.core.tts.model
 import android.content.Context
 import android.content.res.AssetManager
 import android.util.Log
+import com.epubaudioreader.core.common.dispatcher.DispatcherProvider
 import com.epubaudioreader.core.tts.engine.TtsEngine
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,7 +26,8 @@ sealed class ModelLoadState {
 @Singleton
 class ModelAssetLoader @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val ttsEngine: TtsEngine
+    private val ttsEngine: TtsEngine,
+    private val dispatcher: DispatcherProvider
 ) {
     companion object {
         private const val TAG = "ModelAssetLoader"
@@ -39,7 +40,7 @@ class ModelAssetLoader @Inject constructor(
     val modelDir: File
         get() = File(context.filesDir, "tts_model")
 
-    suspend fun prepareModel(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun prepareModel(): Boolean = withContext(dispatcher.io) {
         try {
             _state.value = ModelLoadState.Loading
             Log.i(TAG, "Verificando modelo nos assets...")

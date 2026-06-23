@@ -1,18 +1,17 @@
 package com.epubaudioreader.core.tts.playback
 
 import android.util.Log
-import com.epubaudioreader.core.tts.pipeline.AudioSegment
 import com.epubaudioreader.core.tts.pipeline.AudioSynthesisPipeline
+import com.epubaudioreader.core.tts.pipeline.SegmentStatus
 import com.epubaudioreader.core.tts.segmentation.SmartTextSegmenter
 import com.epubaudioreader.core.tts.segmentation.TextSegment
-import com.epubaudioreader.core.tts.pipeline.SegmentStatus
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,11 +27,6 @@ import javax.inject.Singleton
  *
  * Integra segmentação de texto, pipeline de síntese e reprodução,
  * fornecendo um StateFlow unificado para a UI observar.
- *
- * Arquitetura:
- * - SupervisorJob: falha em uma corrotina não cancela as outras
- * - Dispatchers.Main: todos os callbacks de estado são no thread principal
- * - Playback sequencial: toca segmento por segmento com prefetch
  */
 @Singleton
 class PlaybackCoordinator @Inject constructor(
@@ -50,19 +44,10 @@ class PlaybackCoordinator @Inject constructor(
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
-    private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var playbackJob: Job? = null
     private var segments: List<TextSegment> = emptyList()
 
-    /**
-     * Inicia playback a partir de uma lista de parágrafos.
-     *
-     * Fluxo:
-     * 1. Segmenta o texto em [TextSegment]s
-     * 2. Inicia pipeline de síntese em background com cache
-     * 3. Aguarda primeiro segmento ficar pronto
-     * 4. Toca segmento por segmento sequencialmente com prefetch
-     */
     fun playParagraphs(paragraphs: List<String>, startIndex: Int = 0) {
         stop()
 
@@ -71,14 +56,11 @@ class PlaybackCoordinator @Inject constructor(
             return
         }
 
-        // 1. Segmentar texto
         segments = segmenter.segment(paragraphs)
         Log.i(TAG, "${segments.size} segmentos criados a partir de ${paragraphs.size} parágrafos")
 
-        // 2. Iniciar pipeline de síntese em background
         pipeline.start(segments)
 
-        // 3. Iniciar playback
         playbackJob = scope.launch {
             _state.update {
                 it.copy(
@@ -90,10 +72,9 @@ class PlaybackCoordinator @Inject constructor(
             }
 
             try {
-                // Aguardar primeiro segmento ficar pronto (com timeout)
                 var waitCount = 0
                 while (isActive &&
-                    pipeline.getAudio(startIndex)?.status != SegmentStatus.READY &&
+                    pipeline.getAudio(startIndex) == null &&
                     waitCount < MAX_WAIT_CYCLES
                 ) {
                     delay(WAIT_DELAY_MS)
@@ -104,7 +85,6 @@ class PlaybackCoordinator @Inject constructor(
 
                 _state.update { it.copy(isPreparing = false, isPlaying = true) }
 
-                // Tocar cada segmento sequencialmente
                 for (i in startIndex until segments.size) {
                     if (!isActive) break
 
@@ -113,15 +93,8 @@ class PlaybackCoordinator @Inject constructor(
                         it.copy(currentSegmentIndex = i, currentText = segment.text)
                     }
 
-                    // Prefetch próximos segmentos
                     pipeline.prefetchUpTo(i, PREFETCH_AHEAD)
-
-                    // Tocar segmento atual (bloqueante até conclusão)
-                    val result = synthesizer.speak(segment.text, onComplete = null)
-                    result.onFailure { e ->
-                        Log.e(TAG, "Erro no segmento $i: ${e.message}")
-                        _state.update { it.copy(error = e.message) }
-                    }
+                    playSegment(i)
                 }
 
                 _state.update { it.copy(isPlaying = false, currentText = "") }
@@ -143,10 +116,6 @@ class PlaybackCoordinator @Inject constructor(
         }
     }
 
-    /**
-     * Retoma playback a partir de um índice de segmento específico.
-     * Útil para navegação (ex: tocar a partir do parágrafo visível).
-     */
     fun playFromSegment(index: Int) {
         if (segments.isEmpty()) {
             Log.w(TAG, "Nenhum segmento carregado para tocar a partir do índice $index")
@@ -157,7 +126,6 @@ class PlaybackCoordinator @Inject constructor(
             return
         }
 
-        // Cancelar job atual e reiniciar a partir do índice
         playbackJob?.cancel()
         playbackJob = scope.launch {
             _state.update {
@@ -169,10 +137,9 @@ class PlaybackCoordinator @Inject constructor(
             }
 
             try {
-                // Aguardar segmento ficar pronto
                 var waitCount = 0
                 while (isActive &&
-                    pipeline.getAudio(index)?.status != SegmentStatus.READY &&
+                    pipeline.getAudio(index) == null &&
                     waitCount < MAX_WAIT_CYCLES
                 ) {
                     delay(WAIT_DELAY_MS)
@@ -183,7 +150,6 @@ class PlaybackCoordinator @Inject constructor(
 
                 _state.update { it.copy(isPreparing = false, isPlaying = true) }
 
-                // Tocar a partir do índice
                 for (i in index until segments.size) {
                     if (!isActive) break
 
@@ -192,14 +158,8 @@ class PlaybackCoordinator @Inject constructor(
                         it.copy(currentSegmentIndex = i, currentText = segment.text)
                     }
 
-                    // Prefetch próximos segmentos
                     pipeline.prefetchUpTo(i, PREFETCH_AHEAD)
-
-                    val result = synthesizer.speak(segment.text, onComplete = null)
-                    result.onFailure { e ->
-                        Log.e(TAG, "Erro no segmento $i: ${e.message}")
-                        _state.update { it.copy(error = e.message) }
-                    }
+                    playSegment(i)
                 }
 
                 _state.update { it.copy(isPlaying = false, currentText = "") }
@@ -221,10 +181,25 @@ class PlaybackCoordinator @Inject constructor(
         }
     }
 
-    /**
-     * Pausa o playback imediatamente.
-     * Cancela o job de playback e para o sintetizador.
-     */
+    private suspend fun playSegment(index: Int) {
+        val cached = pipeline.awaitAudio(index, timeoutMs = WAIT_DELAY_MS * MAX_WAIT_CYCLES)
+
+        if (cached != null && cached.samples.isNotEmpty()) {
+            val result = synthesizer.playSamples(cached.samples, cached.sampleRate)
+            result.onFailure { e ->
+                Log.e(TAG, "Erro ao tocar segmento $index do cache: ${e.message}")
+                _state.update { it.copy(error = e.message) }
+            }
+        } else {
+            val segment = segments.getOrNull(index) ?: return
+            val result = synthesizer.speak(segment.text, onComplete = null)
+            result.onFailure { e ->
+                Log.e(TAG, "Erro no segmento $index: ${e.message}")
+                _state.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
     fun pause() {
         playbackJob?.cancel()
         playbackJob = null
@@ -233,10 +208,6 @@ class PlaybackCoordinator @Inject constructor(
         Log.d(TAG, "Playback pausado")
     }
 
-    /**
-     * Para o playback completamente e limpa o estado.
-     * Cancela jobs, para sintetizador e limpa o pipeline.
-     */
     fun stop() {
         playbackJob?.cancel()
         playbackJob = null
@@ -255,12 +226,13 @@ class PlaybackCoordinator @Inject constructor(
     }
 
     /**
-     * Libera todos os recursos.
-     * Deve ser chamado quando o ViewModel é limpo (onCleared).
+     * Libera os recursos do playback atual.
+     * Como PlaybackCoordinator e um singleton, o scope NAO e cancelado aqui;
+     * apenas os jobs ativos sao cancelados para permitir reuso.
      */
     fun release() {
         stop()
-        scope.cancel()
+        scope.coroutineContext.cancelChildren()
         Log.d(TAG, "PlaybackCoordinator liberado")
     }
 }

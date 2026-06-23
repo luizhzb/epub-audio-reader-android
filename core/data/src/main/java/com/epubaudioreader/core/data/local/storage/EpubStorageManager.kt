@@ -3,8 +3,8 @@ package com.epubaudioreader.core.data.local.storage
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import com.epubaudioreader.core.common.dispatcher.DispatcherProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -15,7 +15,8 @@ import javax.inject.Singleton
 
 @Singleton
 class EpubStorageManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val dispatcher: DispatcherProvider
 ) {
     companion object {
         private const val DIR_BOOKS = "books"
@@ -34,7 +35,7 @@ class EpubStorageManager @Inject constructor(
     fun getChaptersDir(bookId: Long): File = File(getBaseDir(), "$DIR_CHAPTERS/$bookId").apply { mkdirs() }
     fun getChapterFile(bookId: Long, chapterId: Long): File = File(getChaptersDir(bookId), "$chapterId.txt")
 
-    suspend fun copyEpubFromUri(uri: Uri, bookId: Long): File = withContext(Dispatchers.IO) {
+    suspend fun copyEpubFromUri(uri: Uri, bookId: Long): File = withContext(dispatcher.io) {
         val destFile = getBookFile(bookId)
         context.contentResolver.openInputStream(uri)?.use { input ->
             destFile.outputStream().use { output ->
@@ -44,7 +45,7 @@ class EpubStorageManager @Inject constructor(
         destFile
     }
 
-    suspend fun saveCover(bitmap: Bitmap, bookId: Long): String = withContext(Dispatchers.IO) {
+    suspend fun saveCover(bitmap: Bitmap, bookId: Long): String = withContext(dispatcher.io) {
         val coverFile = getCoverFile(bookId)
         FileOutputStream(coverFile).use { out ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
@@ -52,23 +53,23 @@ class EpubStorageManager @Inject constructor(
         coverFile.absolutePath
     }
 
-    suspend fun saveChapterText(text: String, bookId: Long, chapterId: Long): String = withContext(Dispatchers.IO) {
+    suspend fun saveChapterText(text: String, bookId: Long, chapterId: Long): String = withContext(dispatcher.io) {
         val chapterFile = getChapterFile(bookId, chapterId)
         chapterFile.writeText(text, Charsets.UTF_8)
         chapterFile.absolutePath
     }
 
-    suspend fun readChapterText(chapterFilePath: String): String = withContext(Dispatchers.IO) {
+    suspend fun readChapterText(chapterFilePath: String): String = withContext(dispatcher.io) {
         File(chapterFilePath).readText(Charsets.UTF_8)
     }
 
-    suspend fun deleteBookFiles(bookId: Long) = withContext(Dispatchers.IO) {
+    suspend fun deleteBookFiles(bookId: Long) = withContext(dispatcher.io) {
         getBookDir(bookId).deleteRecursively()
         getCoverFile(bookId).delete()
         getChaptersDir(bookId).deleteRecursively()
     }
 
-    suspend fun copyBookFile(sourceFile: File, bookId: Long): File = withContext(Dispatchers.IO) {
+    suspend fun copyBookFile(sourceFile: File, bookId: Long): File = withContext(dispatcher.io) {
         val destFile = getBookFile(bookId)
         sourceFile.inputStream().use { input ->
             destFile.outputStream().use { output ->
@@ -78,7 +79,7 @@ class EpubStorageManager @Inject constructor(
         destFile
     }
 
-    suspend fun computeFileHash(file: File): String = withContext(Dispatchers.IO) {
+    suspend fun computeFileHash(file: File): String = withContext(dispatcher.io) {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
             val buffer = ByteArray(8192)

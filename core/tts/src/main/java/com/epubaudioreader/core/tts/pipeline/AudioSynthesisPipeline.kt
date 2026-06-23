@@ -1,14 +1,14 @@
 package com.epubaudioreader.core.tts.pipeline
 
 import android.util.Log
+import com.epubaudioreader.core.common.dispatcher.DispatcherProvider
+import com.epubaudioreader.core.common.result.Result
 import com.epubaudioreader.core.tts.segmentation.TextSegment
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,26 +30,11 @@ import javax.inject.Singleton
  * 3. Mantem cache LRU em memoria (max [CACHE_SIZE] segmentos)
  * 4. Faz prefetch dos proximos segmentos durante o playback
  * 5. Expoe estado observavel via [StateFlow]
- *
- * ## Fluxo de uso:
- * ```
- * pipeline.start(segments)          // Inicia com lista de segmentos
- * pipeline.prefetchUpTo(index)      // Pre-sintetiza segmentos ahead
- * pipeline.getAudio(segmentId)      // Verifica se segmento esta pronto
- * pipeline.awaitAudio(segmentId)    // Aguarda segmento ficar pronto
- * pipeline.cancelAll()              // Cancela todas as corrotinas
- * pipeline.release()                // Libera todos os recursos
- * ```
- *
- * ## Arquitetura:
- * O [TtsSynthesizer] ja toca o audio diretamente via callback JNI
- * (generateWithConfigAndCallback). Este pipeline coordena **QUANDO**
- * sintetizar cada segmento (gerenciamento de estado e prefetch),
- * nao **COMO** tocar o audio.
  */
 @Singleton
 class AudioSynthesisPipeline @Inject constructor(
-    private val synthesizer: TtsSynthesizer
+    private val synthesizer: TtsSynthesizer,
+    private val dispatcher: DispatcherProvider
 ) {
     companion object {
         private const val TAG = "AudioSynthesisPipeline"
@@ -60,10 +45,6 @@ class AudioSynthesisPipeline @Inject constructor(
     private val _state = MutableStateFlow(PipelineState())
     val state: StateFlow<PipelineState> = _state.asStateFlow()
 
-    /**
-     * Cache LRU: segmentId (indice) -> AudioSegment.
-     * accessOrder=true garante ordem de acesso para eviction.
-     */
     private val cache = object : LinkedHashMap<Int, AudioSegment>(CACHE_SIZE, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, AudioSegment>?): Boolean {
             val shouldRemove = size > CACHE_SIZE
@@ -77,16 +58,8 @@ class AudioSynthesisPipeline @Inject constructor(
 
     private var allSegments: List<TextSegment> = emptyList()
     private var jobs: MutableList<Job> = mutableListOf()
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(dispatcher.io + SupervisorJob())
 
-    /**
-     * Inicia o pipeline com uma lista de segmentos.
-     *
-     * Cancela qualquer operacao anterior, limpa o cache e
-     * reinicia o estado.
-     *
-     * @param segments Lista ordenada de segmentos de texto para sintetizar
-     */
     fun start(segments: List<TextSegment>) {
         cancelAll()
         allSegments = segments
@@ -101,16 +74,6 @@ class AudioSynthesisPipeline @Inject constructor(
         Log.i(TAG, "Pipeline iniciado com ${segments.size} segmentos")
     }
 
-    /**
-     * Prefetch segmentos a partir de um indice.
-     *
-     * Sintetiza os segmentos no intervalo [index, index + lookahead)
-     * em paralelo, evitando re-sintetizar segmentos ja prontos ou
-     * em andamento.
-     *
-     * @param index Indice do segmento atual (sera sintetizado primeiro)
-     * @param lookahead Quantidade de segmentos a frente para pre-sintetizar (padrao: [LOOKAHEAD])
-     */
     fun prefetchUpTo(index: Int, lookahead: Int = LOOKAHEAD) {
         if (!_state.value.isRunning || allSegments.isEmpty()) return
         if (index < 0 || index >= allSegments.size) return
@@ -123,19 +86,17 @@ class AudioSynthesisPipeline @Inject constructor(
                     val existing = cache[i]
                     when {
                         existing == null -> {
-                            // Marcar como SYNTHESIZING para evitar duplicacao
                             cache[i] = AudioSegment(
                                 segmentId = i,
                                 samples = FloatArray(0),
                                 sampleRate = 0,
                                 status = SegmentStatus.SYNTHESIZING
                             )
-                            false // Nao pular, precisa sintetizar
+                            false
                         }
                         existing.status == SegmentStatus.READY -> true
                         existing.status == SegmentStatus.SYNTHESIZING -> true
                         else -> {
-                            // PENDING ou ERROR: re-tentar
                             cache[i] = AudioSegment(
                                 segmentId = i,
                                 samples = FloatArray(0),
@@ -154,12 +115,6 @@ class AudioSynthesisPipeline @Inject constructor(
         }
     }
 
-    /**
-     * Retorna um [AudioSegment] do cache se estiver pronto (status [SegmentStatus.READY]).
-     *
-     * @param segmentId Indice do segmento desejado
-     * @return AudioSegment pronto, ou null se nao estiver disponivel
-     */
     suspend fun getAudio(segmentId: Int): AudioSegment? {
         if (segmentId < 0 || segmentId >= allSegments.size) return null
         return cacheMutex.withLock {
@@ -168,16 +123,6 @@ class AudioSynthesisPipeline @Inject constructor(
         }
     }
 
-    /**
-     * Aguarda ate que um segmento esteja pronto, com timeout.
-     *
-     * Faz polling a cada 100ms ate que o segmento fique com status READY
-     * ou o timeout seja atingido.
-     *
-     * @param segmentId Indice do segmento aguardado
-     * @param timeoutMs Timeout em milissegundos (padrao: 30000)
-     * @return AudioSegment pronto, ou null em caso de timeout
-     */
     suspend fun awaitAudio(segmentId: Int, timeoutMs: Long = 30000): AudioSegment? {
         if (segmentId < 0 || segmentId >= allSegments.size) return null
         val startTime = System.currentTimeMillis()
@@ -192,23 +137,11 @@ class AudioSynthesisPipeline @Inject constructor(
         return null
     }
 
-    /**
-     * Move o indice atual e dispara prefetch automatico.
-     *
-     * Chamado pelo PlaybackCoordinator quando avanca para o proximo segmento.
-     *
-     * @param newIndex Novo indice atual
-     */
     fun advanceTo(newIndex: Int) {
         _state.update { it.copy(currentIndex = newIndex) }
         prefetchUpTo(newIndex, LOOKAHEAD)
     }
 
-    /**
-     * Cancela todas as corrotinas de sintese ativas.
-     *
-     * Mantem o cache intacto para reuso rapido.
-     */
     fun cancelAll() {
         scope.coroutineContext.cancelChildren()
         jobs.clear()
@@ -217,71 +150,49 @@ class AudioSynthesisPipeline @Inject constructor(
     }
 
     /**
-     * Libera todos os recursos do pipeline.
-     *
-     * Cancela corrotinas, limpa cache e invalida o scope.
-     * Deve ser chamado quando o TTS e definitivamente parado (ex: ao fechar o app).
+     * Libera os jobs ativos e limpa o cache.
+     * Como este pipeline e um singleton, o scope NAO e cancelado aqui;
+     * apenas os filhos sao cancelados. O scope e reutilizado.
      */
     fun release() {
         cancelAll()
-        scope.cancel()
         cache.clear()
         allSegments = emptyList()
         _state.value = PipelineState()
         Log.i(TAG, "Pipeline liberado")
     }
 
-    /**
-     * Executa a sintese de um unico segmento.
-     *
-     * Como o [TtsSynthesizer] usa callback JNI (generateWithConfigAndCallback)
-     * e o playback e feito diretamente no AudioTrack, este metodo gerencia
-     * apenas o ESTADO do segmento no cache.
-     *
-     * Em uma versao futura que capture samples em memoria, o delay placeholder
-     * sera substituido pela chamada real ao synthesizer.
-     *
-     * @param index Indice do segmento na lista [allSegments]
-     */
     private suspend fun synthesizeSegment(index: Int) {
         try {
             val segment = allSegments.getOrNull(index) ?: return
             Log.d(TAG, "Sintetizando segmento $index: ${segment.text.take(50)}...")
 
-            // O TtsSynthesizer.speak() retorna Result<Unit> e toca via callback JNI.
-            // Como o playback e feito diretamente no AudioTrack pelo Sherpa-ONNX,
-            // o pipeline gerencia o ESTADO e o PREFETCH, nao os samples.
-            //
-            // Na arquitetura atual:
-            // - PlaybackCoordinator chama synthesizer.speak() diretamente para tocar
-            // - Este pipeline faz prefetch (pre-sintetiza) para garantir fluidez
-            //
-            // O delay abaixo simula o tempo de sintese. Em producao, pode ser
-            // substituido por uma chamada que realmente dispara a sintese e
-            // aguarda completude (quando o TtsSynthesizer suportar).
-            delay(50)
+            val result = synthesizer.synthesizeToMemory(segment.text)
 
-            // Obter sample rate do engine para metadados
-            val sampleRate = 22050
+            when (result) {
+                is Result.Success -> {
+                    val audio = result.data
+                    cacheMutex.withLock {
+                        cache[index] = AudioSegment(
+                            segmentId = index,
+                            samples = audio.samples,
+                            sampleRate = audio.sampleRate,
+                            status = SegmentStatus.READY
+                        )
+                    }
 
-            cacheMutex.withLock {
-                cache[index] = AudioSegment(
-                    segmentId = index,
-                    samples = FloatArray(0),
-                    sampleRate = sampleRate,
-                    status = SegmentStatus.READY
-                )
+                    val readyCount = cacheMutex.withLock {
+                        cache.count { entry -> entry.value.status == SegmentStatus.READY }
+                    }
+                    _state.update { it.copy(readyCount = readyCount) }
+
+                    Log.d(TAG, "Segmento $index pronto ($readyCount/${allSegments.size})")
+                }
+                is Result.Error -> {
+                    throw result.exception
+                }
             }
-
-            // Atualizar contagem de prontos
-            val readyCount = cacheMutex.withLock {
-                cache.count { entry -> entry.value.status == SegmentStatus.READY }
-            }
-            _state.update { it.copy(readyCount = readyCount) }
-
-            Log.d(TAG, "Segmento $index pronto ($readyCount/${allSegments.size})")
         } catch (e: CancellationException) {
-            // Cancelado propositalmente — segmento volta a PENDING
             cacheMutex.withLock {
                 if (cache[index]?.status == SegmentStatus.SYNTHESIZING) {
                     cache[index] = AudioSegment(
