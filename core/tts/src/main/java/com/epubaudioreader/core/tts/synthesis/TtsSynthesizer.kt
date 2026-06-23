@@ -16,110 +16,154 @@ class TtsSynthesizer @Inject constructor(
 ) {
     companion object {
         private const val TAG = "TtsSynthesizer"
+        private const val SAMPLE_RATE_FALLBACK = 22050
     }
 
     private var audioTrack: AudioTrack? = null
     private val lock = Object()
-    private var playbackJob: Job? = null
 
     val isPlaying: Boolean
         get() = synchronized(lock) {
             audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING
         }
 
-    val isEngineReady: Boolean
-        get() = ttsEngine.isInitialized
+    private fun floatToShortArray(floats: FloatArray): ShortArray {
+        return ShortArray(floats.size) { i ->
+            val clamped = floats[i].coerceIn(-1.0f, 1.0f)
+            (clamped * 32767).toInt().toShort()
+        }
+    }
 
     suspend fun speak(text: String, onComplete: (() -> Unit)? = null): Result<Unit> =
-        withContext(Dispatchers.Default) {
+        withContext(Dispatchers.IO) {
             try {
                 if (!ttsEngine.isInitialized) {
                     return@withContext Result.failure(IllegalStateException("TTS engine nao inicializado"))
                 }
-
                 if (text.isBlank()) {
-                    Log.w(TAG, "speak() — texto em branco, retornando sucesso vazio")
                     return@withContext Result.success(Unit)
                 }
 
-                stop()
+                stopInternal()
 
-                val samples = withContext(Dispatchers.IO) {
-                    ttsEngine.synthesize(text)
+                Log.d(TAG, "Sintetizando texto: ${text.take(30)}...")
+                val samples = ttsEngine.synthesize(text)
+
+                if (samples == null || samples.isEmpty()) {
+                    return@withContext Result.failure(IllegalStateException("Sintese falhou ou retornou vazio"))
                 }
 
-                if (samples == null) {
-                    return@withContext Result.failure(IllegalStateException("Sintese retornou null"))
-                }
-                if (samples.isEmpty()) {
-                    return@withContext Result.failure(IllegalStateException("Audio vazio"))
-                }
+                Log.d(TAG, "Audio sintetizado: ${samples.size} samples")
 
-                playSamples(samples, onComplete)
+                // Converter para PCM 16bit
+                val pcmData = floatToShortArray(samples)
+                val sampleRate = if (ttsEngine.sampleRate > 0) ttsEngine.sampleRate else SAMPLE_RATE_FALLBACK
+
+                playPcm16(pcmData, sampleRate, onComplete)
                 Result.success(Unit)
+
             } catch (e: Exception) {
                 Log.e(TAG, "Erro em speak: ${e.message}", e)
                 Result.failure(e)
             }
         }
 
-    private fun playSamples(samples: FloatArray, onComplete: (() -> Unit)?) {
-        val sampleRate = ttsEngine.sampleRate
-        val bufferSize = AudioTrack.getMinBufferSize(
+    private suspend fun playPcm16(pcmData: ShortArray, sampleRate: Int, onComplete: (() -> Unit)?) {
+        val minBuffer = AudioTrack.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_FLOAT
-        ).coerceAtLeast(samples.size * 4)
+            AudioFormat.ENCODING_PCM_16BIT
+        )
 
-        synchronized(lock) {
-            audioTrack = AudioTrack(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-                AudioFormat.Builder()
-                    .setSampleRate(sampleRate)
-                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .build(),
-                bufferSize,
-                AudioTrack.MODE_STREAM,
-                AudioManager.AUDIO_SESSION_ID_GENERATE
-            )
-            audioTrack?.play()
+        if (minBuffer <= 0) {
+            Log.e(TAG, "getMinBufferSize retornou valor invalido: $minBuffer")
+            throw IllegalStateException("Formato de audio nao suportado pelo dispositivo")
         }
 
-        val chunkSize = 1024
-        playbackJob = CoroutineScope(Dispatchers.Default).launch {
-            try {
-                var offset = 0
-                while (offset < samples.size && isActive) {
-                    val end = (offset + chunkSize).coerceAtMost(samples.size)
-                    val chunk = samples.copyOfRange(offset, end)
+        val bufferSize = minBuffer.coerceAtLeast(pcmData.size * 2)
+        Log.d(TAG, "AudioTrack bufferSize=$bufferSize, sampleRate=$sampleRate")
 
-                    synchronized(lock) {
-                        audioTrack?.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
+        val track = AudioTrack(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build(),
+            AudioFormat.Builder()
+                .setSampleRate(sampleRate)
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .build(),
+            bufferSize,
+            AudioTrack.MODE_STATIC,
+            AudioManager.AUDIO_SESSION_ID_GENERATE
+        )
+
+        if (track.state != AudioTrack.STATE_INITIALIZED) {
+            Log.e(TAG, "AudioTrack nao foi inicializado! state=${track.state}")
+            track.release()
+            throw IllegalStateException("AudioTrack: falha na inicializacao (state=${track.state})")
+        }
+
+        synchronized(lock) {
+            audioTrack = track
+        }
+
+        val written = track.write(pcmData, 0, pcmData.size)
+        if (written < 0) {
+            Log.e(TAG, "AudioTrack write falhou: $written")
+            stopInternal()
+            throw IllegalStateException("AudioTrack write falhou: $written")
+        }
+
+        Log.d(TAG, "AudioTrack write OK: $written bytes")
+
+        try {
+            track.play()
+            Log.d(TAG, "AudioTrack play iniciado")
+        } catch (e: Exception) {
+            Log.e(TAG, "AudioTrack play falhou: ${e.message}")
+            stopInternal()
+            throw e
+        }
+
+        // Aguardar playback terminar usando coroutine do caller
+        val playbackDurationMs = (pcmData.size * 1000L) / sampleRate
+        Log.d(TAG, "Aguardando playback: ~${playbackDurationMs}ms")
+        delay(playbackDurationMs + 200)
+
+        // Verificar se ainda esta tocando
+        var waitCount = 0
+        while (isPlaying && waitCount < 50) {
+            delay(100)
+            waitCount++
+        }
+
+        Log.d(TAG, "Playback finalizado")
+        onComplete?.invoke()
+    }
+
+    fun stop() {
+        stopInternal()
+    }
+
+    private fun stopInternal() {
+        synchronized(lock) {
+            val track = audioTrack
+            audioTrack = null
+            if (track != null) {
+                try {
+                    if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                        track.stop()
                     }
-                    offset = end
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Erro ao escrever audio: ${e.message}")
-            } finally {
-                onComplete?.invoke()
+                } catch (_: Exception) {}
+                try {
+                    track.release()
+                } catch (_: Exception) {}
             }
         }
     }
 
-    fun stop() {
-        playbackJob?.cancel()
-        synchronized(lock) {
-            try { audioTrack?.stop() } catch (_: Exception) {}
-            try { audioTrack?.release() } catch (_: Exception) {}
-            audioTrack = null
-        }
-    }
-
     fun release() {
-        stop()
+        stopInternal()
     }
 }
