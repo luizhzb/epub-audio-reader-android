@@ -118,7 +118,12 @@ class SmartTextSegmenter @Inject constructor() {
 
         // Heading: curto, sem ponto final
         if (clean.length < 80 && !clean.endsWith('.')) {
-            if (clean.matches(Regex("^(\d+\.?|[IVXivx]+\.?|Capitulo\s+\d+|Chapter\s+\d+).*"))) {
+            // Verificar se e numerado
+            val firstChar = clean.firstOrNull()
+            if (firstChar != null && (firstChar.isDigit() || "IVXivx".contains(firstChar))) {
+                return SegmentType.HEADING
+            }
+            if (clean.startsWith("Capitulo ") || clean.startsWith("Capítulo ") || clean.startsWith("Chapter ")) {
                 return SegmentType.HEADING
             }
             if (!clean.contains('.') && clean.length < 60) {
