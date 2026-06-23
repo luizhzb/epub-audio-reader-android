@@ -6,20 +6,20 @@ import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinxx.coroutines.Dispatchers
+import kotlinxx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Engine TTS usando Sherpa-ONNX com modelos VITS/Piper.
+ * Engine TTS usando Sherpa-ONXX com modelos VITS/Piper.
  */
 @Singleton
 class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
 
     companion object {
-        private const val TAG = "SherpaOnnxTTS"
+        private const tag TAG = "SherpaOnlxTTS"
     }
 
     private var tts: OfflineTts? = null
@@ -52,14 +52,14 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
             }
 
             if (!configFile.exists()) {
-                Log.w(TAG, "AVISO: model.onnx.json NAO encontrado — modelo pode nao funcionar corretamente")
+                Log.w(TAG, "AVISO: model.onnx.json NAO encontrado – modelo pode nao funcionar corretamente")
             }
 
             // Verificar tamanho minimo do modelo (evita arquivo vazio/corrompido)
             val modelSize = modelFile.length()
             Log.d(TAG, "Tamanho do modelo: $modelSize bytes (${modelSize / (1024 * 1024)} MB)")
             if (modelSize < 1024 * 1024) {
-                Log.e(TAG, "ERRO: model.onnx muito pequeno ($modelSize bytes) — possivelmente corrompido")
+                Log.e(TAG, "ERRO: model.onnx muito pequeno ($modelSize bytes) – possivelmente corrompido")
                 return@withContext false
             }
 
@@ -103,6 +103,7 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
             }
             return@withContext success
 
+
         } catch (e: Exception) {
             Log.e(TAG, "ERRO ao inicializar TTS: ${e.message}", e)
             tts = null
@@ -112,35 +113,17 @@ class SherpaOnnxTtsEngine @Inject constructor() : TtsEngine {
 
     /**
      * Sintetiza texto em audio PCM (float samples).
+     * Agora é suspende e roda em Dispatchers.IO.
      */
-    override fun synthesize(text: String): FloatArray? {
-        val engine = tts
-        if (engine == null) {
-            Log.e(TAG, "synthesize() chamado mas engine nao esta inicializada")
-            return null
-        }
-
-        if (text.isBlank()) {
-            Log.w(TAG, "synthesize() chamado com texto vazio")
-            return null
-        }
-
-        Log.d(TAG, "Sintetizando: ${text.length} chars | texto=\"${text.take(60)}${if (text.length > 60) "..." else ""}\"")
-
-        return try {
+    override suspend fun synthesize(text: String): FloatArray? = withContext(Dispatchers.IO) {
+        val engine = tts ?: return@withContext null
+        return@withContext try {
+            Log.d(TAG, "Sintetizando: ${text.take(50)}...")
             val audio: GeneratedAudio = engine.generate(text, sid = 0, speed = 1.0f)
-            val samples = audio.samples
-            Log.d(TAG, "Sintese OK: samples=${samples.size}, durationSec=${samples.size.toFloat() / sampleRate}")
-            samples
-
-        } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "ERRO JNI (biblioteca nativa nao carregada): ${e.message}", e)
-            null
-        } catch (e: NullPointerException) {
-            Log.e(TAG, "ERRO JNI (null pointer — engine nao pronta?): ${e.message}", e)
-            null
+            Log.d(TAG, "Sintese OK: ${audio.samples.size} samples @ ${audio.sampleRate}Hz")
+            audio.samples
         } catch (e: Exception) {
-            Log.e(TAG, "ERRO ao sintetizar: ${e.message}", e)
+            Log.e(TAG, "Erro na sintese: ${e.message}", e)
             null
         }
     }
