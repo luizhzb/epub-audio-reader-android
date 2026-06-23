@@ -1,6 +1,7 @@
 package com.epubaudioreader.core.tts.model
 
 import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.epubaudioreader.core.common.dispatcher.DispatcherProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -61,7 +62,7 @@ sealed class ModelState {
  */
 @Singleton
 class ModelManager @Inject constructor(
-    private val context: Context,
+    @ApplicationContext private val context: Context,
     private val dispatcher: DispatcherProvider
 ) {
     companion object {
