@@ -6,10 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.domain.usecase.reader.GetChapterContentUseCase
 import com.epubaudioreader.core.domain.usecase.reader.SaveProgressUseCase
 import com.epubaudioreader.core.tts.playback.PlaybackCoordinator
-import com.epubaudioreader.core.tts.playback.PlaybackState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,7 +24,7 @@ import javax.inject.Inject
 class ReaderViewModel @Inject constructor(
     private val getChapterContentUseCase: GetChapterContentUseCase,
     private val saveProgressUseCase: SaveProgressUseCase,
-    private val coordinator: PlaybackCoordinator
+    private val playbackCoordinator: PlaybackCoordinator
 ) : ViewModel() {
 
     companion object {
@@ -41,7 +39,6 @@ class ReaderViewModel @Inject constructor(
     private val progressFlow = MutableStateFlow<Triple<Long, Long, Int>?>(null)
 
     init {
-        // Debounced auto-save de progresso de leitura
         progressFlow
             .filter { it != null }
             .debounce(1000L)
@@ -52,13 +49,13 @@ class ReaderViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
-        // Observa estado do PlaybackCoordinator e replica na UI
+        // Observar estado do playback
         viewModelScope.launch {
-            coordinator.state.collect { playbackState ->
+            playbackCoordinator.state.collect { playbackState ->
                 _uiState.update {
                     it.copy(
                         isTtsPlaying = playbackState.isPlaying,
-                        isTtsPrepared = !playbackState.isPreparing,
+                        currentParagraphIndex = playbackState.currentSegmentIndex,
                         ttsError = playbackState.error
                     )
                 }
@@ -87,11 +84,11 @@ class ReaderViewModel @Inject constructor(
                     }
                 } else {
                     _uiState.update {
-                        it.copy(isLoading = false, error = "Capítulo não encontrado")
+                        it.copy(isLoading = false, error = "Capitulo nao encontrado")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Erro ao carregar capítulo: ${e.message}", e)
+                Log.e(TAG, "Erro: ${e.message}", e)
                 _uiState.update {
                     it.copy(isLoading = false, error = e.message ?: "Erro ao carregar")
                 }
@@ -106,41 +103,26 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Toggle TTS playback via PlaybackCoordinator.
-     * Se estiver tocando → pausa.
-     * Se estiver parado → inicia a partir do parágrafo atual.
-     */
     fun toggleTts() {
-        viewModelScope.launch {
-            try {
-                val paragraphs = _uiState.value.paragraphs
-                if (paragraphs.isEmpty()) {
-                    _uiState.update { it.copy(ttsError = "Nenhum texto para leitura") }
-                    return@launch
-                }
+        val paragraphs = _uiState.value.paragraphs
+        if (paragraphs.isEmpty()) return
 
-                if (coordinator.state.value.isPlaying) {
-                    coordinator.pause()
-                } else {
-                    _uiState.update { it.copy(isLoading = true) }
-                    val startIndex = _uiState.value.currentParagraphIndex
-                    coordinator.playParagraphs(paragraphs, startIndex)
-                    _uiState.update { it.copy(isLoading = false) }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Erro TTS toggle: ${e.message}", e)
-                _uiState.update { it.copy(isLoading = false, ttsError = e.message) }
-            }
+        if (_uiState.value.isTtsPlaying) {
+            playbackCoordinator.pause()
+        } else {
+            playbackCoordinator.playParagraphs(
+                paragraphs = paragraphs,
+                startParagraph = _uiState.value.currentParagraphIndex
+            )
         }
     }
 
     fun stopTts() {
-        coordinator.stop()
+        playbackCoordinator.stop()
     }
 
     override fun onCleared() {
         super.onCleared()
-        coordinator.release()
+        playbackCoordinator.release()
     }
 }
