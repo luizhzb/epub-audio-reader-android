@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.domain.usecase.reader.GetChapterContentUseCase
 import com.epubaudioreader.core.domain.usecase.reader.SaveProgressUseCase
+import com.epubaudioreader.core.tts.model.ModelAssetLoader
+import com.epubaudioreader.core.tts.model.ModelLoadState
 import com.epubaudioreader.core.tts.player.EpubTtsPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
@@ -25,6 +27,7 @@ import javax.inject.Inject
 class ReaderViewModel @Inject constructor(
     private val getChapterContentUseCase: GetChapterContentUseCase,
     private val saveProgressUseCase: SaveProgressUseCase,
+    private val modelLoader: ModelAssetLoader,
     private val ttsPlayer: EpubTtsPlayer
 ) : ViewModel() {
 
