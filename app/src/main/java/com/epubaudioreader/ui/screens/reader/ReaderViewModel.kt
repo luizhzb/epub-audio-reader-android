@@ -5,9 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.domain.usecase.reader.GetChapterContentUseCase
 import com.epubaudioreader.core.domain.usecase.reader.SaveProgressUseCase
-import com.epubaudioreader.core.tts.model.ModelAssetLoader
-import com.epubaudioreader.core.tts.model.ModelLoadState
-import com.epubaudioreader.core.tts.player.EpubTtsPlayer
+import com.epubaudioreader.core.tts.playback.PlaybackCoordinator
+import com.epubaudioreader.core.tts.playback.PlaybackState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
@@ -27,8 +26,7 @@ import javax.inject.Inject
 class ReaderViewModel @Inject constructor(
     private val getChapterContentUseCase: GetChapterContentUseCase,
     private val saveProgressUseCase: SaveProgressUseCase,
-    private val modelLoader: ModelAssetLoader,
-    private val ttsPlayer: EpubTtsPlayer
+    private val coordinator: PlaybackCoordinator
 ) : ViewModel() {
 
     companion object {
@@ -43,6 +41,7 @@ class ReaderViewModel @Inject constructor(
     private val progressFlow = MutableStateFlow<Triple<Long, Long, Int>?>(null)
 
     init {
+        // Debounced auto-save de progresso de leitura
         progressFlow
             .filter { it != null }
             .debounce(1000L)
@@ -53,13 +52,14 @@ class ReaderViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
+        // Observa estado do PlaybackCoordinator e replica na UI
         viewModelScope.launch {
-            ttsPlayer.state.collect { ttsState ->
+            coordinator.state.collect { playbackState ->
                 _uiState.update {
                     it.copy(
-                        isTtsPlaying = ttsState.isPlaying,
-                        isTtsPrepared = ttsState.isEngineReady,
-                        ttsError = ttsState.error
+                        isTtsPlaying = playbackState.isPlaying,
+                        isTtsPrepared = !playbackState.isPreparing,
+                        ttsError = playbackState.error
                     )
                 }
             }
@@ -82,22 +82,13 @@ class ReaderViewModel @Inject constructor(
                             currentParagraphIndex = 0
                         )
                     }
-                    val chapters = result.paragraphs.map { para ->
-                        com.epubaudioreader.core.domain.model.ChapterContent(
-                            title = result.title,
-                            paragraphs = result.paragraphs,
-                            totalChars = para.length,
-                            totalParagraphs = result.paragraphs.size
-                        )
-                    }
-                    ttsPlayer.setChapters(chapters)
                 } else {
                     _uiState.update {
-                        it.copy(isLoading = false, error = "Capitulo nao encontrado")
+                        it.copy(isLoading = false, error = "Capítulo não encontrado")
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Erro: ${e.message}", e)
+                Log.e(TAG, "Erro ao carregar capítulo: ${e.message}", e)
                 _uiState.update {
                     it.copy(isLoading = false, error = e.message ?: "Erro ao carregar")
                 }
@@ -112,34 +103,41 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Toggle TTS playback via PlaybackCoordinator.
+     * Se estiver tocando → pausa.
+     * Se estiver parado → inicia a partir do parágrafo atual.
+     */
     fun toggleTts() {
         viewModelScope.launch {
             try {
-                if (ttsPlayer.state.value.isPlaying) {
-                    ttsPlayer.pause()
+                val paragraphs = _uiState.value.paragraphs
+                if (paragraphs.isEmpty()) {
+                    _uiState.update { it.copy(ttsError = "Nenhum texto para leitura") }
+                    return@launch
+                }
+
+                if (coordinator.state.value.isPlaying) {
+                    coordinator.pause()
                 } else {
-                    if (!ttsPlayer.state.value.isEngineReady) {
-                        _uiState.update { it.copy(isLoading = true) }
-                        ttsPlayer.prepare()
-                        _uiState.update { it.copy(isLoading = false) }
-                    }
-                    val chapterIdx = 0
-                    val paraIdx = _uiState.value.currentParagraphIndex
-                    ttsPlayer.play(chapterIdx, paraIdx)
+                    _uiState.update { it.copy(isLoading = true) }
+                    val startIndex = _uiState.value.currentParagraphIndex
+                    coordinator.playParagraphs(paragraphs, startIndex)
+                    _uiState.update { it.copy(isLoading = false) }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Erro TTS: ${e.message}", e)
-                _uiState.update { it.copy(ttsError = e.message) }
+                Log.e(TAG, "Erro TTS toggle: ${e.message}", e)
+                _uiState.update { it.copy(isLoading = false, ttsError = e.message) }
             }
         }
     }
 
     fun stopTts() {
-        ttsPlayer.stop()
+        coordinator.stop()
     }
 
     override fun onCleared() {
         super.onCleared()
-        ttsPlayer.release()
+        coordinator.release()
     }
 }
