@@ -3,7 +3,7 @@ package com.epubaudioreader.core.tts.player
 import android.util.Log
 import com.epubaudioreader.core.domain.model.ChapterContent
 import com.epubaudioreader.core.tts.engine.TtsEngine
-import com.epubaudioreader.core.tts.model.ModelManager
+import com.epubaudioreader.core.tts.model.ModelAssetLoader
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +24,7 @@ data class TtsPlaybackState(
 
 @Singleton
 class EpubTtsPlayer @Inject constructor(
-    private val modelManager: ModelManager,
+    private val modelLoader: ModelAssetLoader,
     private val ttsEngine: TtsEngine,
     private val synthesizer: TtsSynthesizer
 ) {
@@ -44,9 +44,11 @@ class EpubTtsPlayer @Inject constructor(
 
     suspend fun prepare(): Boolean {
         return try {
-            modelManager.ensureModelReady()
-            val modelDir = modelManager.modelDir.absolutePath
-            val result = ttsEngine.initialize(modelDir)
+            val result = modelLoader.prepareModel()
+            if (result) {
+                synthesizer.initAudioTrack()
+                synthesizer.startPlayback()
+            }
             _state.update { it.copy(isEngineReady = result) }
             result
         } catch (e: Exception) {
@@ -61,9 +63,8 @@ class EpubTtsPlayer @Inject constructor(
             _state.value = _state.value.copy(error = "Nenhum capitulo carregado")
             return
         }
-
         if (!ttsEngine.isInitialized) {
-            _state.value = _state.value.copy(error = "Engine nao inicializado")
+            _state.value = _state.value.copy(error = "Engine nao inicializado. Toque Preparar primeiro.")
             return
         }
 
@@ -77,7 +78,6 @@ class EpubTtsPlayer @Inject constructor(
 
                 for (cIndex in chapterIndex until chapters.size) {
                     if (!isActive) break
-
                     val chapter = chapters[cIndex]
                     val startIdx = if (cIndex == chapterIndex) startParagraph else 0
 
@@ -102,7 +102,7 @@ class EpubTtsPlayer @Inject constructor(
                             return@launch
                         }
 
-                        // Aguardar reproducao terminar
+                        // Aguardar playback terminar
                         var waitCount = 0
                         while (synthesizer.isPlaying && isActive && waitCount < 500) {
                             delay(100)
@@ -113,12 +113,11 @@ class EpubTtsPlayer @Inject constructor(
 
                 _state.update { it.copy(isPlaying = false) }
                 Log.d(TAG, "Reproducao concluida")
-
             } catch (e: CancellationException) {
                 Log.d(TAG, "Reproducao cancelada")
                 _state.update { it.copy(isPlaying = false) }
             } catch (e: Exception) {
-                Log.e(TAG, "Erro na reproducao: ${e.message}", e)
+                Log.e(TAG, "Erro: ${e.message}", e)
                 _state.update { it.copy(isPlaying = false, error = e.message) }
             }
         }
