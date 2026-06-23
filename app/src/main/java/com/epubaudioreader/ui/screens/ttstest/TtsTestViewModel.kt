@@ -1,15 +1,12 @@
 package com.epubaudioreader.ui.screens.ttstest
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.tts.engine.TtsEngine
 import com.epubaudioreader.core.tts.model.ModelManager
 import com.epubaudioreader.core.tts.model.ModelState
-import com.epubaudioreader.core.tts.model.DefaultVoiceConfigs
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +16,6 @@ import javax.inject.Inject
 
 @HiltViewModel
 class TtsTestViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val modelManager: ModelManager,
     private val ttsEngine: TtsEngine,
     private val synthesizer: TtsSynthesizer
@@ -31,7 +27,7 @@ class TtsTestViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             observeModelState()
-            checkInitialModelStatus()
+            modelManager.checkExistingModel()
         }
     }
 
@@ -41,19 +37,25 @@ class TtsTestViewModel @Inject constructor(
                 is ModelState.NotDownloaded -> {
                     _uiState.update { it.copy(modelStatus = ModelStatus.NOT_DOWNLOADED) }
                 }
-                is ModelState.Downloading -> {
+                is ModelState.Copying -> {
                     _uiState.update {
                         it.copy(
-                            modelStatus = ModelStatus.DOWNLOADING,
-                            downloadProgress = state.percent / 100f
+                            modelStatus = ModelStatus.COPYING,
+                            copyProgress = state.percent / 100f
                         )
                     }
                 }
-                is ModelState.Ready -> {
+                is ModelState.Initializing -> {
                     _uiState.update { it.copy(modelStatus = ModelStatus.INITIALIZING) }
+                }
+                is ModelState.Ready -> {
+                    // Inicializar engine TTS
                     val initialized = ttsEngine.initialize(state.modelDir)
                     _uiState.update {
-                        it.copy(modelStatus = if (initialized) ModelStatus.READY else ModelStatus.ERROR)
+                        it.copy(
+                            modelStatus = if (initialized) ModelStatus.READY else ModelStatus.ERROR,
+                            error = if (!initialized) "Falha ao inicializar TTS" else null
+                        )
                     }
                 }
                 is ModelState.Error -> {
@@ -65,23 +67,10 @@ class TtsTestViewModel @Inject constructor(
         }
     }
 
-    private fun checkInitialModelStatus() {
-        val currentState = modelManager.state.value
-        if (currentState is ModelState.Ready) {
-            _uiState.update { it.copy(modelStatus = ModelStatus.READY) }
-        } else if (currentState is ModelState.NotDownloaded) {
-            _uiState.update { it.copy(modelStatus = ModelStatus.NOT_DOWNLOADED) }
-        }
-    }
-
-    fun downloadModel() {
+    fun prepareModel() {
         viewModelScope.launch {
             _uiState.update { it.copy(error = null) }
-            try {
-                modelManager.downloadModel(DefaultVoiceConfigs.DEFAULT)
-            } catch (e: Exception) {
-                _uiState.update { it.copy(modelStatus = ModelStatus.ERROR, error = e.message) }
-            }
+            modelManager.ensureModelReady()
         }
     }
 
@@ -100,7 +89,6 @@ class TtsTestViewModel @Inject constructor(
                     val modelDir = modelManager.modelDir.absolutePath
                     ttsEngine.initialize(modelDir)
                 }
-
                 synthesizer.speak(text)
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = e.message) }
@@ -112,8 +100,6 @@ class TtsTestViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // Only stop playback — DO NOT release singleton engine
-        // TtsEngine is @Singleton, releasing it would kill TTS for the entire app
         synthesizer.stop()
     }
 }
