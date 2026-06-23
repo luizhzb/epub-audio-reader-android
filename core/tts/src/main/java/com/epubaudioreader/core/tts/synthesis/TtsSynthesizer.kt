@@ -27,6 +27,8 @@ class TtsSynthesizer @Inject constructor(
     val isPlaying: Boolean
         get() = synchronized(lock) { !stopped }
 
+    fun isAudioTrackInitialized(): Boolean = synchronized(lock) { track != null }
+
     fun initAudioTrack() {
         val tts = ttsEngine.getTts() ?: throw IllegalStateException("TTS nao inicializado")
         val sampleRate = tts.sampleRate()

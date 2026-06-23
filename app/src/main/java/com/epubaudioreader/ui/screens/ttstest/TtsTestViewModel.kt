@@ -126,7 +126,8 @@ class TtsTestViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         speakJob?.cancel()
+        // NAO liberar o engine/synthesizer aqui: eles sao singletons compartilhados
+        // com outras telas (ex: ReaderScreen). Apenas cancelamos a fala atual.
         synthesizer.stop()
-        ttsEngine.release()
     }
 }

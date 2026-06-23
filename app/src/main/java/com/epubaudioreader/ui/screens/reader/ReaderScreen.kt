@@ -118,12 +118,19 @@ internal fun ReaderContent(
         floatingActionButton = {
             if (uiState.paragraphs.isNotEmpty()) {
                 FloatingActionButton(
-                    onClick = onToggleTts
+                    onClick = { if (!uiState.isTtsPreparing) onToggleTts() }
                 ) {
-                    Icon(
-                        imageVector = if (uiState.isTtsPlaying) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-                        contentDescription = if (uiState.isTtsPlaying) "Parar leitura" else "Iniciar leitura"
-                    )
+                    if (uiState.isTtsPreparing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(4.dp),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (uiState.isTtsPlaying) Icons.Filled.Stop else Icons.Filled.PlayArrow,
+                            contentDescription = if (uiState.isTtsPlaying) "Parar leitura" else "Iniciar leitura"
+                        )
+                    }
                 }
             }
         }
