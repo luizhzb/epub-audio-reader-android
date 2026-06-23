@@ -10,6 +10,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }
     }
 }
 rootProject.name = "epub-audio-reader"
@@ -17,3 +18,4 @@ include(":app")
 include(":core:common")
 include(":core:domain")
 include(":core:data")
+include(":core:tts")

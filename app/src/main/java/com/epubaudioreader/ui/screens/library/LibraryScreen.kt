@@ -44,12 +44,14 @@ import com.epubaudioreader.ui.components.EmptyState
 import com.epubaudioreader.ui.components.ImportFab
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.SettingsVoice
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
     viewModel: LibraryViewModel,
     onBookClick: (Long) -> Unit,
+    onTtsTestClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -76,6 +78,15 @@ fun LibraryScreen(
                     Text(text = stringResource(R.string.library_title))
                 },
                 scrollBehavior = scrollBehavior,
+                actions = {
+                    IconButton(onClick = onTtsTestClick) {
+                        Icon(
+                            imageVector = Icons.Default.SettingsVoice,
+                            contentDescription = stringResource(R.string.tts_test_title),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer

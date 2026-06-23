@@ -14,4 +14,5 @@
     <string name="total_chapters">%d capitulos</string>
     <string name="unknown_author">Autor desconhecido</string>
     <string name="chapter_number">Capitulo %d</string>
+    <string name="tts_test_title">Testar TTS</string>
 </resources>

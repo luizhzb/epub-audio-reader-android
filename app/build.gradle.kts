@@ -26,6 +26,7 @@ dependencies {
     implementation(project(":core:domain"))
     implementation(project(":core:data"))
     implementation(project(":core:common"))
+    implementation(project(":core:tts"))
     val composeBom = platform(libs.compose.bom)
     implementation(composeBom)
     implementation(libs.bundles.compose)

@@ -14,6 +14,7 @@ import com.epubaudioreader.ui.screens.library.LibraryScreen
 import com.epubaudioreader.ui.screens.library.LibraryViewModel
 import com.epubaudioreader.ui.screens.reader.ReaderScreen
 import com.epubaudioreader.ui.screens.reader.ReaderViewModel
+import com.epubaudioreader.ui.screens.ttstest.TtsTestScreen
 
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
@@ -24,6 +25,9 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 viewModel = viewModel,
                 onBookClick = { bookId ->
                     navController.navigate(Screen.BookDetail.createRoute(bookId))
+                },
+                onTtsTestClick = {
+                    navController.navigate(Screen.TtsTest.route)
                 }
             )
         }
@@ -58,6 +62,9 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 chapterId = chapterId,
                 onBackClick = { navController.popBackStack() }
             )
+        }
+        composable(Screen.TtsTest.route) {
+            TtsTestScreen(onBackClick = { navController.popBackStack() })
         }
     }
 }
