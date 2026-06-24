@@ -9,6 +9,9 @@ import com.epubaudioreader.core.tts.model.ModelLoadState
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -23,7 +26,8 @@ class TtsTestViewModel @Inject constructor(
         private const val TAG = "TtsTestViewModel"
     }
 
-    val uiState = kotlinx.coroutines.flow.MutableStateFlow(TtsTestUiState())
+    private val _uiState = MutableStateFlow(TtsTestUiState())
+    val uiState: StateFlow<TtsTestUiState> = _uiState.asStateFlow()
 
     private var speakJob: Job? = null
 
@@ -47,10 +51,10 @@ class TtsTestViewModel @Inject constructor(
                     }
                     is ModelLoadState.Error -> ModelStatus.ERROR
                 }
-                uiState.value = uiState.value.copy(
+                _uiState.value = _uiState.value.copy(
                     modelStatus = status,
-                    copyProgress = if (state is ModelLoadState.Copying) state.percent / 100f else uiState.value.copyProgress,
-                    error = if (state is ModelLoadState.Error) state.message else uiState.value.error
+                    copyProgress = if (state is ModelLoadState.Copying) state.percent / 100f else _uiState.value.copyProgress,
+                    error = if (state is ModelLoadState.Error) state.message else _uiState.value.error
                 )
             }
         }
@@ -62,34 +66,34 @@ class TtsTestViewModel @Inject constructor(
 
     fun prepareModel() {
         viewModelScope.launch {
-            uiState.value = uiState.value.copy(error = null)
+            _uiState.value = _uiState.value.copy(error = null)
             modelLoader.prepareModel()
         }
     }
 
     fun onTextChange(text: String) {
-        uiState.value = uiState.value.copy(text = text)
+        _uiState.value = _uiState.value.copy(text = text)
     }
 
     fun speak() {
         speakJob?.cancel()
         speakJob = viewModelScope.launch {
-            val text = uiState.value.text
+            val text = _uiState.value.text
             if (text.isBlank()) return@launch
 
             if (synthesizer.isPlaying) {
                 synthesizer.stop()
-                uiState.value = uiState.value.copy(isPlaying = false)
+                _uiState.value = _uiState.value.copy(isPlaying = false)
                 return@launch
             }
 
-            uiState.value = uiState.value.copy(isPlaying = true, error = null)
+            _uiState.value = _uiState.value.copy(isPlaying = true, error = null)
 
             try {
                 if (!ttsEngine.isInitialized) {
                     val prepared = modelLoader.prepareModel()
                     if (!prepared) {
-                        uiState.value = uiState.value.copy(
+                        _uiState.value = _uiState.value.copy(
                             isPlaying = false,
                             error = "Falha ao preparar modelo TTS"
                         )
@@ -99,19 +103,19 @@ class TtsTestViewModel @Inject constructor(
 
                 val result = synthesizer.speak(text, onComplete = {
                     viewModelScope.launch {
-                        uiState.value = uiState.value.copy(isPlaying = false)
+                        _uiState.value = _uiState.value.copy(isPlaying = false)
                     }
                 })
 
                 result.onFailure { e ->
-                    uiState.value = uiState.value.copy(
+                    _uiState.value = _uiState.value.copy(
                         isPlaying = false,
                         error = e.message ?: "Erro na sintese"
                     )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Erro em speak: ${e.message}", e)
-                uiState.value = uiState.value.copy(
+                _uiState.value = _uiState.value.copy(
                     isPlaying = false,
                     error = e.message ?: "Erro desconhecido"
                 )
@@ -120,7 +124,7 @@ class TtsTestViewModel @Inject constructor(
     }
 
     fun dismissError() {
-        uiState.value = uiState.value.copy(error = null)
+        _uiState.value = _uiState.value.copy(error = null)
     }
 
     override fun onCleared() {
