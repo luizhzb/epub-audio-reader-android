@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,10 +28,22 @@ private fun EmptyStatePreview() {
     }
 }
 
+@Preview(showBackground = true)
+@Composable
+private fun EmptyStateWithActionPreview() {
+    MaterialTheme {
+        EmptyState(
+            message = "Sua biblioteca esta vazia",
+            onImportClick = {}
+        )
+    }
+}
+
 @Composable
 fun EmptyState(
     message: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onImportClick: (() -> Unit)? = null
 ) {
     Box(
         modifier = modifier.fillMaxSize(),
@@ -53,6 +66,12 @@ fun EmptyState(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
+            if (onImportClick != null) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(onClick = onImportClick) {
+                    Text(text = "Importar primeiro livro")
+                }
+            }
         }
     }
 }
