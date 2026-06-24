@@ -6,14 +6,17 @@ import com.epubaudioreader.core.domain.repository.BookRepository
 import com.epubaudioreader.core.domain.repository.ChapterRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
 import javax.inject.Inject
 
 class GetBookWithChaptersUseCase @Inject constructor(
     private val bookRepository: BookRepository,
     private val chapterRepository: ChapterRepository
 ) {
-    operator fun invoke(bookId: Long): Flow<Pair<Book?, List<Chapter>>> = combine(
+    operator fun invoke(bookId: Long): Flow<Pair<Book, List<Chapter>>> = combine(
         bookRepository.getBookById(bookId),
         chapterRepository.getChaptersByBook(bookId)
     ) { book, chapters -> book to chapters }
+        .filter { (book, _) -> book != null }
+        .map { (book, chapters) -> book!! to chapters }
 }
