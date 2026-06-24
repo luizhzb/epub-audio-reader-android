@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.epubaudioreader.core.data.epub.extractor.TextExtractorTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-06-23T21:36:02" hostname="codespaces-d91c62" time="0.618">
+  <properties/>
+  <testcase name="extract returns empty string for blank input" classname="com.epubaudioreader.core.data.epub.extractor.TextExtractorTest" time="0.232"/>
+  <testcase name="extract separates paragraphs with blank lines" classname="com.epubaudioreader.core.data.epub.extractor.TextExtractorTest" time="0.329"/>
+  <testcase name="extract decodes html entities" classname="com.epubaudioreader.core.data.epub.extractor.TextExtractorTest" time="0.002"/>
+  <testcase name="extract returns plain text from simple paragraph" classname="com.epubaudioreader.core.data.epub.extractor.TextExtractorTest" time="0.006"/>
+  <testcase name="extract strips script and style content" classname="com.epubaudioreader.core.data.epub.extractor.TextExtractorTest" time="0.015"/>
+  <testcase name="extract handles br tags" classname="com.epubaudioreader.core.data.epub.extractor.TextExtractorTest" time="0.006"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

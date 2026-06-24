@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.epubaudioreader.core.data.repository.mapper.BookMapperTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-06-23T21:36:02" hostname="codespaces-d91c62" time="0.024">
+  <properties/>
+  <testcase name="toEntity preserves non-zero id" classname="com.epubaudioreader.core.data.repository.mapper.BookMapperTest" time="0.018"/>
+  <testcase name="toEntity maps all fields correctly and resets id when zero" classname="com.epubaudioreader.core.data.repository.mapper.BookMapperTest" time="0.002"/>
+  <testcase name="toDomain maps all fields correctly" classname="com.epubaudioreader.core.data.repository.mapper.BookMapperTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
