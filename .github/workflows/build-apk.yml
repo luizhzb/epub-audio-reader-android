@@ -1,0 +1,91 @@
+name: Build APK + Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download TTS Model
+        run: |
+          echo "Downloading TTS model..."
+          python3 download_model.py
+          find core/tts/src/main/assets/ -type f | head -20
+          du -sh core/tts/src/main/assets/
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-enabled: true
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build Release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Run Unit Tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-release
+          path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Delete old release
+        uses: dev-drprasad/delete-tag-and-release@v1.0
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v0.5.1
+          delete_release: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Create Release v0.5.1
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v0.5.1
+          name: "v0.5.1 - EPUB Audio Reader"
+          body: |
+            ## EPUB Audio Reader v0.5.1
+            ### Funcionalidades
+            - Leitura de EPUB com biblioteca e capitulos
+            - TTS offline com Sherpa-ONNX
+            - Voz em portugues do Brasil (pt-BR)
+            - Leitura por paragrafo com segmentacao inteligente
+            - Scroll automatico para paragrafo sendo lido
+            - Avanco automatico entre capitulos
+            ### Correcoes (147 bugs)
+            - Motor TTS, Reader, EPUB Parser, Database, UI, Build
+            ### Requisitos
+            - Android 8.0+ (API 26)
+            - **100% offline**
+          files: app/build/outputs/apk/release/app-release.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
