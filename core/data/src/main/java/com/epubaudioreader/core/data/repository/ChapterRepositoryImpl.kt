@@ -1,5 +1,6 @@
 package com.epubaudioreader.core.data.repository
 
+import android.util.Log
 import com.epubaudioreader.core.common.dispatcher.DispatcherProvider
 import com.epubaudioreader.core.data.local.database.dao.ChapterDao
 import com.epubaudioreader.core.data.repository.mapper.ChapterMapper
@@ -29,14 +30,24 @@ class ChapterRepositoryImpl @Inject constructor(
 
     override suspend fun getChapterContent(chapter: Chapter): ChapterContent =
         withContext(dispatcher.io) {
-            val text = storageManager.readChapterText(chapter.contentFilePath)
-            val paragraphs = text.split("\n\n").filter { it.isNotBlank() }
-            ChapterContent(
-                title = chapter.title,
-                paragraphs = paragraphs,
-                totalChars = text.length,
-                totalParagraphs = paragraphs.size
-            )
+            try {
+                val text = storageManager.readChapterText(chapter.contentFilePath)
+                val paragraphs = text.split("\n\n").filter { it.isNotBlank() }
+                ChapterContent(
+                    title = chapter.title,
+                    paragraphs = paragraphs,
+                    totalChars = text.length,
+                    totalParagraphs = paragraphs.size
+                )
+            } catch (e: Exception) {
+                Log.e("ChapterRepository", "Error loading chapter content: ${chapter.id}", e)
+                ChapterContent(
+                    title = chapter.title,
+                    paragraphs = emptyList(),
+                    totalChars = 0,
+                    totalParagraphs = 0
+                )
+            }
         }
 
     override suspend fun getNextChapter(bookId: Long, currentOrderIndex: Int): Chapter? =
