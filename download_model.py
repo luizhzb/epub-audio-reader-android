@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Download TTS model pt-BR para EPUB Audio Reader."""
 
-import argparse
 import os
 import shutil
 import subprocess
@@ -13,7 +12,7 @@ MODEL_DIR = "vits-piper-pt_BR-faber-medium"
 MODEL_NAME = "pt_BR-faber-medium.onnx"
 ASSET_DIR = "core/tts/src/main/assets"
 
-def download_model(token: str = None):
+def download_model():
     print("Downloading TTS model pt-BR: vits-piper-pt_BR-faber-medium...")
     os.makedirs(ASSET_DIR, exist_ok=True)
     
@@ -49,6 +48,13 @@ def download_model(token: str = None):
         print(f"Extract failed: {result.stderr}")
         sys.exit(1)
     
+    # Remove temporary tar.bz2 to save disk space
+    try:
+        os.remove(tar_file)
+        print(f"Removed temporary file: {tar_file}")
+    except OSError as e:
+        print(f"Warning: could not remove {tar_file}: {e}")
+    
     src_dir = os.path.join(extract_dir, MODEL_DIR)
     dst_dir = os.path.join(ASSET_DIR, MODEL_DIR)
     
@@ -67,7 +73,4 @@ def download_model(token: str = None):
     print(f"Total: {total / 1024 / 1024:.1f} MB")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--token", default=None)
-    args = parser.parse_args()
-    download_model(args.token)
+    download_model()
