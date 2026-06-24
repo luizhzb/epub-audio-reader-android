@@ -10,7 +10,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -227,7 +226,8 @@ class AudioSynthesisPipeline @Inject constructor(
                     val deferred = deferredsMutex.withLock {
                         pendingDeferreds.remove(index)
                     }
-                    deferred?.complete(audio)
+                    val cachedSegment = cacheMutex.withLock { cache[index] }
+                    deferred?.complete(cachedSegment)
                 }
                 is Result.Error -> {
                     throw result.exception
