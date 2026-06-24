@@ -42,14 +42,23 @@ class BookRepositoryImpl @Inject constructor(
 
     /**
      * Imports a book with proper separation of I/O and DB operations:
-     * 1. Compute hash and check for duplicates
-     * 2. Parse EPUB metadata
-     * 3. Insert initial BookEntity to generate ID
-     * 4. Copy EPUB file to app storage (filesystem)
-     * 5. Extract cover image (filesystem)
-     * 6. Extract chapters and save chapter texts to filesystem OUTSIDE transaction
-     * 7. Build ChapterEntities with correct paths and insert inside Room transaction
-     * 8. Rollback files if anything fails
+     *
+     * Phase 1 - Validation & Setup:
+     *   1. Compute hash and check for duplicates
+     *   2. Parse EPUB metadata
+     *   3. Insert initial BookEntity to generate ID
+     *
+     * Phase 2 - Filesystem I/O (ALL outside Room transaction):
+     *   4. Copy EPUB file to app storage
+     *   5. Extract cover image
+     *   6. Extract and save ALL chapter texts to filesystem
+     *
+     * Phase 3 - Database (inside Room transaction, NO I/O):
+     *   7. Build ChapterEntities with correct file paths
+     *   8. Insert chapters and update book inside transaction
+     *
+     * Phase 4 - Rollback on failure:
+     *   9. If any step fails, delete created files and DB row
      */
     override suspend fun importBook(filePath: String, fileSize: Long): Result<Book> =
         withContext(dispatcher.io) {
@@ -64,7 +73,7 @@ class BookRepositoryImpl @Inject constructor(
                     )
                 }
 
-                // 1. Compute hash and check duplicates
+                // Phase 1: Validation & Setup
                 val hash = storageManager.computeFileHash(originalFile)
                 val existingByHash = bookDao.findBookByHash(hash)
                 if (existingByHash != null) {
@@ -73,10 +82,8 @@ class BookRepositoryImpl @Inject constructor(
                     )
                 }
 
-                // 2. Parse EPUB
                 val parsedEpub = epubParser.parse(originalFile)
 
-                // 3. Create and insert initial BookEntity to get the ID
                 val initialBookEntity = BookEntity(
                     title = parsedEpub.metadata.title,
                     authors = parsedEpub.metadata.authors.joinToString("; ").ifBlank { "Desconhecido" },
@@ -96,62 +103,56 @@ class BookRepositoryImpl @Inject constructor(
                     )
                 }
 
-                // 4. Copy EPUB file to app storage (filesystem I/O)
+                // Phase 2: Filesystem I/O (ALL outside transaction)
                 val storedFile = storageManager.copyBookFile(originalFile, bookId)
                 createdFiles += storedFile
 
-                // 5. Extract cover (filesystem I/O)
                 val coverPath = coverExtractor.extractCover(
                     parsedEpub.copy(bookFile = storedFile),
                     bookId
                 )
                 coverPath?.let { createdFiles += File(it) }
 
-                // 6. Extract chapters (filesystem I/O)
                 val chapterDataList = chapterExtractor.extractChapters(
                     parsedEpub.copy(bookFile = storedFile),
                     bookId
                 )
 
-                // 7. Save chapter texts to filesystem OUTSIDE transaction,
-                //    build entities with correct paths
-                val chapterEntities = mutableListOf<ChapterEntity>()
+                // Save ALL chapter texts to filesystem BEFORE any DB transaction
+                val chapterPaths = mutableListOf<String>()
                 var totalChars = 0L
 
                 for ((index, chapterData) in chapterDataList.withIndex()) {
-                    val paragraphs = chapterData.text.split("\n\n")
                     val charCount = chapterData.text.length
                     totalChars += charCount
 
-                    // Save chapter text to filesystem first (I/O outside transaction)
-                    val tempChapterEntity = ChapterEntity(
+                    // Save chapter text to filesystem (I/O outside transaction)
+                    val path = storageManager.saveChapterText(
                         bookId = bookId,
-                        title = chapterData.title,
-                        orderIndex = index,
-                        contentFilePath = "", // placeholder; will be updated after file save
-                        charCount = charCount,
-                        paragraphCount = paragraphs.size,
-                        spineIndex = chapterData.spineIndex,
-                        href = chapterData.href
+                        chapterId = index.toLong(),
+                        text = chapterData.text
                     )
-                    chapterEntities += tempChapterEntity
+                    createdFiles += File(path)
+                    chapterPaths += path
                 }
 
-                // 8. Atomic DB write inside transaction: insert chapters, then update paths
+                // Phase 3: Database transaction (NO filesystem I/O here)
                 database.withTransaction {
-                    val chapterIds = chapterDao.insertChapters(chapterEntities)
-
-                    // Update each chapter with the correct file path after saving to filesystem
-                    for ((index, chapterData) in chapterDataList.withIndex()) {
-                        val chapterId = chapterIds[index]
-                        val path = storageManager.saveChapterText(
+                    val chapterEntities = chapterDataList.mapIndexed { index, chapterData ->
+                        val paragraphs = chapterData.text.split("\n\n")
+                        ChapterEntity(
                             bookId = bookId,
-                            chapterId = chapterId,
-                            text = chapterData.text
+                            title = chapterData.title,
+                            orderIndex = index,
+                            contentFilePath = chapterPaths.getOrElse(index) { "" },
+                            charCount = chapterData.text.length,
+                            paragraphCount = paragraphs.size,
+                            spineIndex = chapterData.spineIndex,
+                            href = chapterData.href
                         )
-                        createdFiles += File(path)
-                        chapterDao.updateContentFilePath(chapterId, path)
                     }
+
+                    chapterDao.insertChapters(chapterEntities)
 
                     val finalBookEntity = initialBookEntity.copy(
                         id = bookId,
@@ -162,7 +163,7 @@ class BookRepositoryImpl @Inject constructor(
                     bookDao.updateBook(finalBookEntity)
                 }
 
-                // 9. Return domain model
+                // Phase 4: Return result
                 val finalBookEntity = bookDao.getBookEntityById(bookId)
                     ?: return@withContext Result.Error(
                         IllegalStateException("Falha ao recuperar livro após importação")
@@ -170,7 +171,6 @@ class BookRepositoryImpl @Inject constructor(
                 Result.Success(bookMapper.toDomain(finalBookEntity))
 
             } catch (e: Exception) {
-                // Rollback: delete any files created and remove the book row
                 rollbackImport(bookId, createdFiles)
                 Result.Error(e)
             }
