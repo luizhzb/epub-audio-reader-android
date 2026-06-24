@@ -1,19 +1,26 @@
 package com.epubaudioreader.core.data.epub.parser
 
 import android.util.Log
+import kotlinx.coroutines.withTimeout
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.ByteArrayInputStream
 import java.io.InputStream
-import java.io.PushbackInputStream
 
 /**
  * Utility functions for secure XML parsing with XXE protection (BUG-EPUB-005)
  * and encoding detection (BUG-EPUB-007).
+ * Also provides timeout wrappers for I/O operations (BUG-EPUB-015).
  */
 object XmlParserUtils {
 
     private const val TAG = "XmlParserUtils"
+
+    /** Timeout for individual ZIP entry reads in milliseconds (BUG-EPUB-015) */
+    private const val ZIP_READ_TIMEOUT_MS = 30000L
+
+    /** Timeout for full EPUB parsing in milliseconds (BUG-EPUB-015) */
+    const val EPUB_PARSE_TIMEOUT_MS = 60000L
 
     /**
      * Creates an XmlPullParserFactory with XXE protection enabled. (BUG-EPUB-005)
@@ -38,6 +45,17 @@ object XmlParserUtils {
     fun createSecureParser(inputStream: InputStream): XmlPullParser {
         // Read all bytes to allow encoding detection and multiple passes if needed
         val bytes = inputStream.use { it.readBytes() }
+        val encoding = detectEncoding(bytes)
+        val factory = createSecureFactory()
+        val parser = factory.newPullParser()
+        parser.setInput(ByteArrayInputStream(bytes), encoding)
+        return parser
+    }
+
+    /**
+     * Creates a secure XmlPullParser from byte array with automatic encoding detection. (BUG-EPUB-007)
+     */
+    fun createSecureParser(bytes: ByteArray): XmlPullParser {
         val encoding = detectEncoding(bytes)
         val factory = createSecureFactory()
         val parser = factory.newPullParser()
@@ -108,6 +126,18 @@ object XmlParserUtils {
                 bytes.copyOfRange(2, bytes.size)
             }
             else -> bytes
+        }
+    }
+
+    /**
+     * Wraps a suspending block with a timeout for I/O operations. (BUG-EPUB-015)
+     * Prevents indefinite blocking on corrupted or malformed ZIP entries.
+     */
+    suspend fun <T> withZipReadTimeout(
+        block: suspend () -> T
+    ): T {
+        return withTimeout(ZIP_READ_TIMEOUT_MS) {
+            block()
         }
     }
 }
