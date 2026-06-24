@@ -15,6 +15,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * ViewModel da tela de teste TTS com correcoes de crash (AUDITORIA 2025-06-25).
+ *
+ * CORRECOES:
+ * - Captura Result de initAudioTrack() e startPlayback() (nao lanca excecao)
+ * - Logs TTS_TRACE detalhados em cada ponto critico
+ * - Try/catch completo em speak()
+ */
 @HiltViewModel
 class TtsTestViewModel @Inject constructor(
     private val modelLoader: ModelAssetLoader,
@@ -32,7 +40,6 @@ class TtsTestViewModel @Inject constructor(
     private var speakJob: Job? = null
 
     init {
-        // Observar estado do modelo
         viewModelScope.launch {
             modelLoader.state.collect { state ->
                 val status = when (state) {
@@ -40,12 +47,23 @@ class TtsTestViewModel @Inject constructor(
                     is ModelLoadState.Copying -> ModelStatus.COPYING
                     is ModelLoadState.Loading -> ModelStatus.LOADING
                     is ModelLoadState.Ready -> {
-                        // Inicializar AudioTrack quando TTS fica pronto
-                        try {
-                            synthesizer.initAudioTrack()
-                            synthesizer.startPlayback()
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Erro ao iniciar AudioTrack: ${e.message}", e)
+                        Log.i(TAG, "[TTS_TRACE] Modelo pronto, inicializando AudioTrack...")
+                        val initResult = synthesizer.initAudioTrack()
+                        if (initResult.isSuccess) {
+                            val startResult = synthesizer.startPlayback()
+                            if (startResult.isFailure) {
+                                Log.e(TAG, "[TTS_TRACE] startPlayback() falhou: ${startResult.exceptionOrNull()?.message}")
+                                _uiState.value = _uiState.value.copy(
+                                    error = "Erro ao iniciar audio: ${startResult.exceptionOrNull()?.message}"
+                                )
+                            } else {
+                                Log.i(TAG, "[TTS_TRACE] AudioTrack inicializado com sucesso")
+                            }
+                        } else {
+                            Log.e(TAG, "[TTS_TRACE] initAudioTrack() falhou: ${initResult.exceptionOrNull()?.message}")
+                            _uiState.value = _uiState.value.copy(
+                                error = "Erro ao inicializar audio: ${initResult.exceptionOrNull()?.message}"
+                            )
                         }
                         ModelStatus.READY
                     }
@@ -81,7 +99,10 @@ class TtsTestViewModel @Inject constructor(
             val text = _uiState.value.text
             if (text.isBlank()) return@launch
 
+            Log.i(TAG, "[TTS_TRACE] speak() INICIO: '${text.take(60)}...'")
+
             if (synthesizer.isPlaying) {
+                Log.d(TAG, "[TTS_TRACE] Parando sintese atual")
                 synthesizer.stop()
                 _uiState.value = _uiState.value.copy(isPlaying = false)
                 return@launch
@@ -91,30 +112,47 @@ class TtsTestViewModel @Inject constructor(
 
             try {
                 if (!ttsEngine.isInitialized) {
+                    Log.i(TAG, "[TTS_TRACE] Engine nao inicializado, preparando modelo...")
                     val prepared = modelLoader.prepareModel()
                     if (!prepared) {
+                        Log.e(TAG, "[TTS_TRACE] prepareModel() retornou false")
                         _uiState.value = _uiState.value.copy(
                             isPlaying = false,
                             error = "Falha ao preparar modelo TTS"
                         )
                         return@launch
                     }
+                    Log.i(TAG, "[TTS_TRACE] Modelo preparado, inicializando AudioTrack...")
+                    val initResult = synthesizer.initAudioTrack()
+                    if (initResult.isFailure) {
+                        _uiState.value = _uiState.value.copy(
+                            isPlaying = false,
+                            error = "Falha ao inicializar audio: ${initResult.exceptionOrNull()?.message}"
+                        )
+                        return@launch
+                    }
                 }
 
+                Log.i(TAG, "[TTS_TRACE] Chamando synthesizer.speak()...")
                 val result = synthesizer.speak(text, onComplete = {
                     viewModelScope.launch {
+                        Log.i(TAG, "[TTS_TRACE] speak() onComplete chamado")
                         _uiState.value = _uiState.value.copy(isPlaying = false)
                     }
                 })
 
+                result.onSuccess {
+                    Log.i(TAG, "[TTS_TRACE] speak() concluido com sucesso")
+                }
                 result.onFailure { e ->
+                    Log.e(TAG, "[TTS_TRACE] speak() falhou: ${e.message}")
                     _uiState.value = _uiState.value.copy(
                         isPlaying = false,
                         error = e.message ?: "Erro na sintese"
                     )
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Erro em speak: ${e.message}", e)
+                Log.e(TAG, "[TTS_TRACE] ERRO em speak(): ${e.message}", e)
                 _uiState.value = _uiState.value.copy(
                     isPlaying = false,
                     error = e.message ?: "Erro desconhecido"
@@ -130,8 +168,20 @@ class TtsTestViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         speakJob?.cancel()
-        // NAO liberar o engine/synthesizer aqui: eles sao singletons compartilhados
-        // com outras telas (ex: ReaderScreen). Apenas cancelamos a fala atual.
         synthesizer.stop()
     }
 }
+
+/** Estados do modelo TTS */
+enum class ModelStatus {
+    NOT_LOADED, COPYING, LOADING, READY, ERROR
+}
+
+/** Estado da UI da tela de teste TTS */
+data class TtsTestUiState(
+    val text: String = "Ola! Este e um teste de sintese de voz.",
+    val isPlaying: Boolean = false,
+    val modelStatus: ModelStatus = ModelStatus.NOT_LOADED,
+    val copyProgress: Float = 0f,
+    val error: String? = null
+)
