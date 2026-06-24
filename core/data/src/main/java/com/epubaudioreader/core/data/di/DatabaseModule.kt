@@ -24,7 +24,7 @@ object DatabaseModule {
             AppDatabase::class.java,
             "epub_reader_database"
         )
-            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
 
