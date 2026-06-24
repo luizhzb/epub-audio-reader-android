@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.yield
 import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,6 +49,7 @@ class PlaybackCoordinator @Inject constructor(
         private const val MAX_WAIT_CYCLES = 75  // 15s no total
         private const val WAIT_DELAY_MS = 200L
         private const val PREFETCH_AHEAD = 3
+        private const val SEGMENT_GAP_MS = 300L  // Pausa entre segmentos
     }
 
     private val _state = MutableStateFlow(PlaybackState())
@@ -63,7 +65,6 @@ class PlaybackCoordinator @Inject constructor(
     fun playParagraphs(paragraphs: List<String>, startIndex: Int = 0) {
         Log.i(TAG, "playParagraphs: ${paragraphs.size} paragrafos, indice=$startIndex")
 
-        // BUG-007: Operacao stop() atomica via mutex
         scope.launch {
             mutex.withLock {
                 stopInternal()
@@ -86,7 +87,6 @@ class PlaybackCoordinator @Inject constructor(
             }
 
             pipeline.start(currentSegments)
-            // Prefetch inicial dos primeiros segmentos
             pipeline.prefetchUpTo(startIndex, PREFETCH_AHEAD)
 
             val job = scope.launch {
@@ -100,7 +100,7 @@ class PlaybackCoordinator @Inject constructor(
                 }
 
                 try {
-                    // BUG-015: Usar AtomicInteger para waitCount
+                    // Aguarda o primeiro segmento ficar pronto
                     val waitCount = AtomicInteger(0)
                     while (isActive &&
                         pipeline.getAudio(startIndex) == null &&
@@ -132,6 +132,8 @@ class PlaybackCoordinator @Inject constructor(
                     for (i in startIndex until currentSegments.size) {
                         if (!isActive) break
 
+                        yield() // Da chance para corrotinas de cancelamento
+
                         val segment = currentSegments[i]
                         _state.update {
                             it.copy(currentSegmentIndex = i, currentText = segment.text)
@@ -139,6 +141,11 @@ class PlaybackCoordinator @Inject constructor(
 
                         pipeline.prefetchUpTo(i, PREFETCH_AHEAD)
                         playSegment(i)
+
+                        // Pausa entre segmentos para o usuario processar
+                        if (isActive && i < currentSegments.size - 1) {
+                            delay(SEGMENT_GAP_MS)
+                        }
                     }
 
                     _state.update { it.copy(isPlaying = false, currentText = "") }
@@ -165,96 +172,11 @@ class PlaybackCoordinator @Inject constructor(
         }
     }
 
-    fun playFromSegment(index: Int) {
-        scope.launch {
-            val currentSegments = mutex.withLock { segments }
-
-            if (currentSegments.isEmpty()) {
-                Log.w(TAG, "Nenhum segmento carregado para tocar a partir do indice $index")
-                return@launch
-            }
-            if (index < 0 || index >= currentSegments.size) {
-                Log.w(TAG, "Indice $index fora dos limites [0, ${currentSegments.size})")
-                return@launch
-            }
-
-            playbackJob?.cancel()
-
-            val job = scope.launch {
-                _state.update {
-                    it.copy(
-                        isPreparing = true,
-                        currentSegmentIndex = index,
-                        error = null
-                    )
-                }
-
-                try {
-                    // BUG-015: Usar AtomicInteger para waitCount
-                    val waitCount = AtomicInteger(0)
-                    while (isActive &&
-                        pipeline.getAudio(index) == null &&
-                        waitCount.get() < MAX_WAIT_CYCLES
-                    ) {
-                        delay(WAIT_DELAY_MS)
-                        waitCount.incrementAndGet()
-                    }
-
-                    if (!isActive) return@launch
-
-                    if (pipeline.getAudio(index) == null) {
-                        _state.update {
-                            it.copy(
-                                isPreparing = false,
-                                isPlaying = false,
-                                error = "Timeout ao preparar segmento $index"
-                            )
-                        }
-                        return@launch
-                    }
-
-                    _state.update { it.copy(isPreparing = false, isPlaying = true) }
-
-                    for (i in index until currentSegments.size) {
-                        if (!isActive) break
-
-                        val segment = currentSegments[i]
-                        _state.update {
-                            it.copy(currentSegmentIndex = i, currentText = segment.text)
-                        }
-
-                        pipeline.prefetchUpTo(i, PREFETCH_AHEAD)
-                        playSegment(i)
-                    }
-
-                    _state.update { it.copy(isPlaying = false, currentText = "") }
-                    Log.i(TAG, "Playback a partir do segmento $index concluido")
-
-                } catch (e: CancellationException) {
-                    Log.d(TAG, "Playback cancelado")
-                    _state.update { it.copy(isPlaying = false, isPreparing = false) }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Erro no playback: ${e.message}", e)
-                    _state.update {
-                        it.copy(
-                            isPlaying = false,
-                            isPreparing = false,
-                            error = e.message
-                        )
-                    }
-                }
-            }
-
-            mutex.withLock {
-                playbackJob = job
-            }
-        }
-    }
-
     private suspend fun playSegment(index: Int) {
         Log.d(TAG, "playSegment($index)")
-        val cached = pipeline.awaitAudio(index, timeoutMs = WAIT_DELAY_MS * MAX_WAIT_CYCLES)
 
+        // Tenta tocar do cache primeiro
+        val cached = pipeline.awaitAudio(index, timeoutMs = WAIT_DELAY_MS * MAX_WAIT_CYCLES)
         if (cached != null && cached.samples.isNotEmpty()) {
             Log.d(TAG, "Tocando segmento $index do cache (${cached.samples.size} samples)")
             val result = synthesizer.playSamples(cached.samples, cached.sampleRate)
@@ -262,16 +184,31 @@ class PlaybackCoordinator @Inject constructor(
                 Log.e(TAG, "Erro ao tocar segmento $index do cache: ${e.message}")
                 _state.update { it.copy(error = e.message) }
             }
-        } else {
-            val currentSegments = mutex.withLock { segments }
-            val segment = currentSegments.getOrNull(index) ?: return
-            Log.d(TAG, "Tocando segmento $index por geracao direta")
-            val result = synthesizer.speak(segment.text, onComplete = null)
-            result.onFailure { e ->
-                Log.e(TAG, "Erro no segmento $index: ${e.message}")
-                _state.update { it.copy(error = e.message) }
-            }
+
+            // Aguarda a duracao estimada do audio
+            val durationMs = (cached.samples.size.toFloat() / cached.sampleRate * 1000).toLong()
+            Log.d(TAG, "Aguardando $durationStr ms de playback do segmento $index")
+            delay(durationMs)
+            return
         }
+
+        // Fallback: sintese direta via speak
+        val currentSegments = mutex.withLock { segments }
+        val segment = currentSegments.getOrNull(index) ?: return
+        Log.d(TAG, "Tocando segmento $index por geracao direta: '${segment.text.take(50)}...'")
+
+        val result = synthesizer.speak(segment.text, onComplete = null)
+        result.onFailure { e ->
+            Log.e(TAG, "Erro no segmento $index: ${e.message}")
+            _state.update { it.copy(error = e.message) }
+        }
+    }
+
+    private val FloatArray.durationMs: Long
+        get() = (size.toFloat() / 22050 * 1000).toLong()
+
+    private fun durationStr(samples: Int, sampleRate: Int): Long {
+        return (samples.toFloat() / sampleRate * 1000).toLong()
     }
 
     fun pause() {
