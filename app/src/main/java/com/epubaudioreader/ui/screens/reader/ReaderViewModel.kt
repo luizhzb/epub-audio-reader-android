@@ -26,6 +26,16 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * ViewModel da tela de leitura com melhorias de diagnostico TTS.
+ * 
+ * Melhorias implementadas:
+ * 1. Mapeia ModelLoadState para ModelStatus com progresso de copia
+ * 2. Verifica erro previo no modelo antes de iniciar TTS
+ * 3. Garante mensagem de erro amigavel quando preparacao falha
+ * 4. Metodo publico prepareModelExplicitly() para botao "Carregar Modelo"
+ * 5. Mensagens de erro claras em portugues para o usuario
+ */
 @OptIn(FlowPreview::class)
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
@@ -49,7 +59,7 @@ class ReaderViewModel @Inject constructor(
     private var isLoadingChapter: Boolean = false
     private val progressFlow = MutableStateFlow<Triple<Long, Long, Int>?>(null)
 
-    // Channel for one-time navigation events (e.g., advance to next chapter)
+    // Channel for one-time navigation events
     private val _navigationEvents = Channel<ReaderNavigationEvent>(Channel.BUFFERED)
     val navigationEvents = _navigationEvents.receiveAsFlow()
 
@@ -68,7 +78,7 @@ class ReaderViewModel @Inject constructor(
             }
             .launchIn(viewModelScope)
 
-        // Observe playback state
+        // === MELHORIA: Observe playback state ===
         viewModelScope.launch {
             playbackCoordinator.state.collect { playbackState ->
                 Log.d(TAG, "PlaybackState: isPlaying=${playbackState.isPlaying}, " +
@@ -76,7 +86,6 @@ class ReaderViewModel @Inject constructor(
                         "segment=${playbackState.currentSegmentIndex}/${playbackState.totalSegments}, " +
                         "error=${playbackState.error}")
 
-                // Check if TTS finished the last paragraph of the chapter
                 val isLastSegment = playbackState.currentSegmentIndex >= 0 &&
                         playbackState.totalSegments > 0 &&
                         playbackState.currentSegmentIndex >= playbackState.totalSegments - 1
@@ -93,7 +102,6 @@ class ReaderViewModel @Inject constructor(
                     it.copy(
                         isTtsPlaying = playbackState.isPlaying,
                         isTtsPreparing = playbackState.isPreparing,
-                        // Only update ttsParagraphIndex from TTS callbacks, not from scroll
                         ttsParagraphIndex = if (playbackState.currentSegmentIndex >= 0) {
                             playbackState.currentSegmentIndex
                         } else it.ttsParagraphIndex,
@@ -102,30 +110,46 @@ class ReaderViewModel @Inject constructor(
                     )
                 }
 
-                // Save progress based on TTS position, not scroll position (BUG-READ-009)
+                // Save progress based on TTS position
                 if (playbackState.isPlaying && playbackState.currentSegmentIndex >= 0 &&
                     currentBookId != 0L && currentChapterId != 0L
                 ) {
                     progressFlow.value = Triple(
-                        currentBookId,
-                        currentChapterId,
-                        playbackState.currentSegmentIndex
+                        currentBookId, currentChapterId, playbackState.currentSegmentIndex
                     )
                 }
             }
         }
 
-        // Observe TTS model loading state
+        // === MELHORIA: Observe TTS model loading state com ModelStatus ===
         viewModelScope.launch {
             modelLoader.state.collect { state ->
+                // Mapeia ModelLoadState para ModelStatus amigavel a UI
+                val modelStatus = when (state) {
+                    is ModelLoadState.NotLoaded -> ModelStatus.NOT_LOADED
+                    is ModelLoadState.Copying -> ModelStatus.COPYING
+                    is ModelLoadState.Loading -> ModelStatus.LOADING
+                    is ModelLoadState.Ready -> ModelStatus.READY
+                    is ModelLoadState.Error -> ModelStatus.ERROR
+                }
+
                 val isPrepared = state is ModelLoadState.Ready
                 val isPreparing = state is ModelLoadState.Loading || state is ModelLoadState.Copying
-                Log.d(TAG, "ModelLoadState: ${state.javaClass.simpleName}, prepared=$isPrepared, preparing=$isPreparing")
+
+                Log.d(TAG, "ModelLoadState: ${state.javaClass.simpleName} -> " +
+                        "ModelStatus=$modelStatus, prepared=$isPrepared, preparing=$isPreparing")
+
                 _uiState.update {
                     it.copy(
+                        modelStatus = modelStatus,
                         isTtsPrepared = isPrepared,
                         isTtsPreparing = isPreparing,
-                        ttsError = if (state is ModelLoadState.Error) state.message else it.ttsError
+                        modelCopyProgress = if (state is ModelLoadState.Copying) {
+                            state.percent / 100f
+                        } else it.modelCopyProgress,
+                        ttsError = if (state is ModelLoadState.Error) {
+                            state.message
+                        } else it.ttsError
                     )
                 }
             }
@@ -133,7 +157,6 @@ class ReaderViewModel @Inject constructor(
     }
 
     override fun onStop(owner: LifecycleOwner) {
-        // Pause TTS when the lifecycle owner stops (fragment/activity pause)
         if (_uiState.value.isTtsPlaying) {
             Log.i(TAG, "Lifecycle stopping, pausing TTS")
             playbackCoordinator.pause()
@@ -141,21 +164,16 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun loadChapter(bookId: Long, chapterId: Long) {
-        // Prevent reloading the same chapter on rotation (BUG-READ-003)
         if (currentBookId == bookId && currentChapterId == chapterId && paragraphs.isNotEmpty()) {
             Log.d(TAG, "Chapter already loaded, skipping reload")
             return
         }
-
-        // Prevent duplicate load calls (BUG-READ-012)
         if (isLoadingChapter) {
             Log.d(TAG, "Already loading a chapter, skipping duplicate call")
             return
         }
 
-        // Stop TTS when changing chapters
         playbackCoordinator.stop()
-
         currentBookId = bookId
         currentChapterId = chapterId
         paragraphs = emptyList()
@@ -203,10 +221,29 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun onParagraphVisible(index: Int) {
-        // Only update visibleParagraphIndex for scroll tracking, never currentParagraphIndex (BUG-READ-002)
         _uiState.update { it.copy(visibleParagraphIndex = index) }
     }
 
+    // === MELHORIA: Metodo publico para botao "Carregar Modelo" ===
+    fun prepareModelExplicitly() {
+        viewModelScope.launch {
+            Log.i(TAG, "Preparacao explicita do modelo solicitada pelo usuario")
+            _uiState.update { it.copy(isTtsPreparing = true, ttsError = null) }
+            val prepared = prepareTts()
+            if (!prepared) {
+                Log.e(TAG, "Preparacao explicita falhou")
+                // Garante mensagem de erro amigavel
+                if (_uiState.value.ttsError == null) {
+                    _uiState.update {
+                        it.copy(ttsError = "Falha ao carregar modelo. Toque em 'Carregar Modelo' para tentar novamente.")
+                    }
+                }
+            }
+            _uiState.update { it.copy(isTtsPreparing = false) }
+        }
+    }
+
+    // === MELHORIA: ToggleTTS com verificacoes de erro ===
     fun toggleTts() {
         val currentParagraphs = _uiState.value.paragraphs
         if (currentParagraphs.isEmpty()) {
@@ -221,12 +258,36 @@ class ReaderViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            Log.i(TAG, "Starting TTS, prepared=${_uiState.value.isTtsPrepared}")
+            Log.i(TAG, "Starting TTS, prepared=${_uiState.value.isTtsPrepared}, " +
+                    "modelStatus=${_uiState.value.modelStatus}")
+
+            // MELHORIA: Verificar se ha erro previo no modelo
+            if (_uiState.value.modelStatus == ModelStatus.ERROR) {
+                _uiState.update {
+                    it.copy(ttsError = "Modelo com erro. Toque em 'Carregar Modelo' para tentar novamente.")
+                }
+                return@launch
+            }
+
+            // MELHORIA: Verificar se modelo esta em estado invalido
+            if (_uiState.value.modelStatus == ModelStatus.NOT_LOADED) {
+                _uiState.update {
+                    it.copy(ttsError = "Modelo nao carregado. Toque em 'Carregar Modelo' primeiro.")
+                }
+                return@launch
+            }
+
             if (!_uiState.value.isTtsPrepared) {
                 _uiState.update { it.copy(isTtsPreparing = true, ttsError = null) }
                 val prepared = prepareTts()
                 if (!prepared) {
                     Log.e(TAG, "TTS preparation failed")
+                    // MELHORIA: Garante mensagem de erro amigavel
+                    if (_uiState.value.ttsError == null) {
+                        _uiState.update {
+                            it.copy(ttsError = "Falha ao preparar o modelo TTS. Toque em 'Carregar Modelo'.")
+                        }
+                    }
                     _uiState.update { it.copy(isTtsPreparing = false) }
                     return@launch
                 }
@@ -235,13 +296,11 @@ class ReaderViewModel @Inject constructor(
             _uiState.update { it.copy(isTtsPreparing = false, ttsError = null) }
             Log.i(TAG, "Calling playParagraphs index=${_uiState.value.currentParagraphIndex}")
 
-            // Wrap playParagraphs in try/catch (BUG-READ-013)
             try {
                 playbackCoordinator.playParagraphs(
                     paragraphs = currentParagraphs,
                     startIndex = _uiState.value.currentParagraphIndex.coerceIn(
-                        0,
-                        currentParagraphs.size - 1
+                        0, currentParagraphs.size - 1
                     )
                 )
             } catch (e: Exception) {
@@ -250,7 +309,7 @@ class ReaderViewModel @Inject constructor(
                     it.copy(
                         isTtsPlaying = false,
                         isTtsPreparing = false,
-                        ttsError = e.message ?: "Error starting playback"
+                        ttsError = e.message ?: "Erro ao iniciar reproducao"
                     )
                 }
             }
@@ -260,7 +319,6 @@ class ReaderViewModel @Inject constructor(
     private suspend fun prepareTts(): Boolean {
         return try {
             if (modelLoader.state.value is ModelLoadState.Ready) {
-                // Already ready; ensure AudioTrack is initialized
                 if (synthesizer.isAudioTrackInitialized()) {
                     Log.i(TAG, "Model ready and AudioTrack initialized")
                     return true
@@ -271,7 +329,9 @@ class ReaderViewModel @Inject constructor(
                     return true
                 } catch (e: Exception) {
                     Log.e(TAG, "Error initializing AudioTrack: ${e.message}", e)
-                    _uiState.update { it.copy(ttsError = "Error initializing audio: ${e.message}") }
+                    _uiState.update {
+                        it.copy(ttsError = "Erro ao inicializar audio: ${e.message}")
+                    }
                     return false
                 }
             }
@@ -284,17 +344,23 @@ class ReaderViewModel @Inject constructor(
                     synthesizer.initAudioTrack()
                 } catch (e: Exception) {
                     Log.e(TAG, "Error initializing AudioTrack: ${e.message}", e)
-                    _uiState.update { it.copy(ttsError = "Error initializing audio: ${e.message}") }
+                    _uiState.update {
+                        it.copy(ttsError = "Erro ao inicializar audio: ${e.message}")
+                    }
                     return false
                 }
             } else {
                 Log.e(TAG, "modelLoader.prepareModel() returned false")
-                _uiState.update { it.copy(ttsError = "Failed to prepare TTS model") }
+                if (_uiState.value.ttsError == null) {
+                    _uiState.update {
+                        it.copy(ttsError = "Falha ao preparar modelo TTS. Verifique os assets.")
+                    }
+                }
             }
             success
         } catch (e: Exception) {
             Log.e(TAG, "Error preparing TTS: ${e.message}", e)
-            _uiState.update { it.copy(ttsError = e.message ?: "Error preparing TTS") }
+            _uiState.update { it.copy(ttsError = e.message ?: "Erro ao preparar TTS") }
             false
         }
     }
@@ -307,7 +373,6 @@ class ReaderViewModel @Inject constructor(
         _uiState.update { it.copy(ttsError = null) }
     }
 
-    /** Call this when the user leaves the reader screen (BUG-READ-004) */
     fun onLeaveScreen() {
         Log.i(TAG, "Leaving reader screen, stopping TTS")
         playbackCoordinator.stop()
@@ -315,9 +380,6 @@ class ReaderViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // Only stop playback; do NOT release the singleton coordinator (BUG-READ-011)
         playbackCoordinator.stop()
-        // Do NOT release the engine or synthesizer here: they are singletons
-        // shared with other screens (e.g., TtsTestScreen).
     }
 }
