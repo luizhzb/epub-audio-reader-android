@@ -42,30 +42,17 @@ jobs:
       - name: Build Release APK
         run: ./gradlew :app:assembleRelease --stacktrace
 
-      - name: Find and verify APK
+      - name: Verify APK
         run: |
-          echo "=== Find all APKs ==="
-          find app/build/outputs/apk/ -name "*.apk" -type f
-          echo "=== APK Details ==="
-          ls -laR app/build/outputs/apk/release/ 2>/dev/null || echo "No release APK dir"
-          echo "=== Copy to known path ==="
-          mkdir -p app/build/outputs/apk/release/
-          APK_PATH=$(find app/build/outputs/apk/ -name "*.apk" -type f | head -1)
-          if [ -n "$APK_PATH" ]; then
-            cp "$APK_PATH" app/build/outputs/apk/release/app-release.apk
-            echo "APK copied to: app/build/outputs/apk/release/app-release.apk"
-            ls -la app/build/outputs/apk/release/app-release.apk
-          else
-            echo "ERROR: No APK found!"
-            exit 1
-          fi
+          echo "=== APK Output ==="
+          ls -la app/build/outputs/apk/release/
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: app-release
-          path: app/build/outputs/apk/release/app-release.apk
+          path: app/build/outputs/apk/release/*.apk
 
       - name: Create or Update Release
         uses: softprops/action-gh-release@v2
@@ -87,7 +74,7 @@ jobs:
             ### Requisitos
             - Android 8.0+ (API 26)
             - **100% offline**
-          files: app/build/outputs/apk/release/app-release.apk
+          files: app/build/outputs/apk/release/*.apk
           draft: false
           prerelease: false
         env:
