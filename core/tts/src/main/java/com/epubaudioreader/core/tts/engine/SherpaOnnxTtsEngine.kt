@@ -22,7 +22,6 @@ class SherpaOnnxTtsEngine @Inject constructor(
         private const val DATA_DIR = "vits-piper-pt_BR-faber-medium/espeak-ng-data"
     }
 
-    /** BUG-014: Flag volatile para visibilidade entre threads */
     @Volatile
     private var tts: OfflineTts? = null
 
@@ -36,7 +35,6 @@ class SherpaOnnxTtsEngine @Inject constructor(
         return try {
             Log.i(TAG, "Inicializando TTS com modelo dos assets...")
 
-            // BUG-011: Usa caminho direto - copia e feita unicamente pelo ModelAssetLoader
             val dataDir = resolveDataDirPath()
 
             val config = getOfflineTtsConfig(
@@ -68,11 +66,6 @@ class SherpaOnnxTtsEngine @Inject constructor(
         tts = null
     }
 
-    /**
-     * BUG-011: Apenas constroi o caminho do data dir.
-     * A copia dos assets e responsabilidade unica do ModelAssetLoader,
-     * evitando duplicacao de trabalho e inconsistencias.
-     */
     private fun resolveDataDirPath(): String {
         val externalDir = context.getExternalFilesDir(null) ?: context.filesDir
         val dataDirFile = File(externalDir, DATA_DIR)
