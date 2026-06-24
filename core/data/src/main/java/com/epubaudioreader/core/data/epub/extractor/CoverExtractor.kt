@@ -2,9 +2,11 @@ package com.epubaudioreader.core.data.epub.extractor
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import com.epubaudioreader.core.data.epub.model.ParsedEpub
 import com.epubaudioreader.core.data.local.storage.EpubStorageManager
-import java.io.File
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import java.util.zip.ZipFile
 import javax.inject.Inject
 
@@ -17,12 +19,16 @@ import javax.inject.Inject
  * 5. first image in manifest
  *
  * Resizes to max 512x768 and saves as JPEG via EpubStorageManager.
+ * Includes OOM protection via inSampleSize calculation (BUG-EPUB-002).
+ * Normalizes relative paths (BUG-EPUB-014).
+ * Detects SVG covers (BUG-EPUB-019).
  */
 class CoverExtractor @Inject constructor(
     private val storageManager: EpubStorageManager
 ) {
 
     companion object {
+        private const val TAG = "CoverExtractor"
         private const val MAX_WIDTH = 512
         private const val MAX_HEIGHT = 768
         private const val JPEG_QUALITY = 85
@@ -33,7 +39,8 @@ class CoverExtractor @Inject constructor(
             ?: return null
 
         return try {
-            val bitmap = BitmapFactory.decodeByteArray(coverBytes, 0, coverBytes.size)
+            // BUG-EPUB-002: Decode with OOM protection using inSampleSize
+            val bitmap = decodeSampledBitmap(coverBytes)
                 ?: return null
 
             val resized = resizeBitmap(bitmap, MAX_WIDTH, MAX_HEIGHT)
@@ -47,19 +54,67 @@ class CoverExtractor @Inject constructor(
             }
 
             coverPath
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // BUG-EPUB-008: Log errors instead of silently swallowing
+            Log.e(TAG, "Failed to extract cover for book $bookId", e)
             null
         }
+    }
+
+    /**
+     * Decodes bitmap with inSampleSize to prevent OOM on high-res covers. (BUG-EPUB-002)
+     */
+    private fun decodeSampledBitmap(coverBytes: ByteArray): Bitmap? {
+        // First decode with inJustDecodeBounds=true to check dimensions
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeByteArray(coverBytes, 0, coverBytes.size, options)
+
+        if (options.outWidth <= 0 || options.outHeight <= 0) {
+            Log.w(TAG, "Invalid bitmap dimensions: ${options.outWidth}x${options.outHeight}")
+            return null
+        }
+
+        // Calculate inSampleSize
+        options.inSampleSize = calculateInSampleSize(
+            options.outWidth, options.outHeight, MAX_WIDTH, MAX_HEIGHT
+        )
+        options.inJustDecodeBounds = false
+
+        Log.d(TAG, "Decoding bitmap with inSampleSize=${options.inSampleSize} " +
+                "(original: ${options.outWidth}x${options.outHeight})")
+
+        return BitmapFactory.decodeByteArray(coverBytes, 0, coverBytes.size, options)
+    }
+
+    private fun calculateInSampleSize(
+        width: Int, height: Int, reqWidth: Int, reqHeight: Int
+    ): Int {
+        var inSampleSize = 1
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight = height / 2
+            val halfWidth = width / 2
+            while (halfWidth / inSampleSize >= reqWidth && halfHeight / inSampleSize >= reqHeight) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
     }
 
     private fun findCoverBytes(parsedEpub: ParsedEpub): ByteArray? {
         ZipFile(parsedEpub.bookFile).use { zip ->
             // Level 1: meta name="cover" -> find item by id in manifest
-            val coverItemId = findCoverMetaItemId(parsedEpub)
+            val coverItemId = findCoverMetaItemId(parsedEpub, zip)
             if (coverItemId != null) {
                 val item = parsedEpub.manifest[coverItemId]
                 if (item != null) {
                     val path = resolvePath(parsedEpub.opfDir, item.href)
+                    // BUG-EPUB-019: Skip SVG covers - BitmapFactory can't decode them
+                    if (item.mediaType == "image/svg+xml") {
+                        Log.w(TAG, "SVG cover detected at $path - skipping Bitmap extraction")
+                        return null
+                    }
                     zip.getEntry(path)?.let { entry ->
                         zip.getInputStream(entry).use { it.readBytes() }.let { return it }
                     }
@@ -70,22 +125,51 @@ class CoverExtractor @Inject constructor(
             val coverImageItem = parsedEpub.manifest.values.find { it.properties == "cover-image" }
             if (coverImageItem != null) {
                 val path = resolvePath(parsedEpub.opfDir, coverImageItem.href)
+                if (coverImageItem.mediaType == "image/svg+xml") {
+                    Log.w(TAG, "SVG cover detected at $path - skipping Bitmap extraction")
+                    return null
+                }
                 zip.getEntry(path)?.let { entry ->
                     zip.getInputStream(entry).use { it.readBytes() }.let { return it }
                 }
             }
 
             // Level 3: guide reference type="cover"
-            // Need to re-parse OPF for guide or we can extract from parsedEpub
-            // Since ParsedEpub doesn't have guide, we need to check the manifest heuristically
-            // Actually, ParsedEpub doesn't carry guide. Let's rely on the OPF having parsed it.
-            // For now, skip to level 4 since ParsedEpub doesn't expose guide directly.
-            // We'll handle this by checking the EPUB again for guide.
+            val guideCover = parsedEpub.guide.find { it.type.equals("cover", ignoreCase = true) }
+            if (guideCover != null) {
+                val path = resolvePath(parsedEpub.opfDir, guideCover.href)
+                zip.getEntry(path)?.let { entry ->
+                    val bytes = zip.getInputStream(entry).use { it.readBytes() }
+                    // Check if the guide points to an image or XHTML
+                    if (guideCover.href.endsWith(".jpg", ignoreCase = true) ||
+                        guideCover.href.endsWith(".jpeg", ignoreCase = true) ||
+                        guideCover.href.endsWith(".png", ignoreCase = true)
+                    ) {
+                        return bytes
+                    }
+                    // If XHTML, try to extract first image from it
+                    if (guideCover.href.endsWith(".xhtml", ignoreCase = true) ||
+                        guideCover.href.endsWith(".html", ignoreCase = true)
+                    ) {
+                        val html = bytes.toString(Charsets.UTF_8)
+                        val imgRegex = Regex("""<img[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                        val match = imgRegex.find(html)
+                        if (match != null) {
+                            val imgSrc = match.groupValues[1]
+                            val imgPath = resolvePath(parsedEpub.opfDir, imgSrc)
+                            zip.getEntry(imgPath)?.let { imgEntry ->
+                                zip.getInputStream(imgEntry).use { it.readBytes() }.let { return it }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Level 4: heuristic by name "cover" in manifest
             val heuristicItem = parsedEpub.manifest.values.find { item ->
                 item.href.lowercase().contains("cover") &&
-                    item.mediaType.startsWith("image/")
+                    item.mediaType.startsWith("image/") &&
+                    item.mediaType != "image/svg+xml" // BUG-EPUB-019: skip SVG
             }
             if (heuristicItem != null) {
                 val path = resolvePath(parsedEpub.opfDir, heuristicItem.href)
@@ -96,7 +180,7 @@ class CoverExtractor @Inject constructor(
 
             // Level 5: first image in manifest
             val firstImage = parsedEpub.manifest.values.find {
-                it.mediaType.startsWith("image/")
+                it.mediaType.startsWith("image/") && it.mediaType != "image/svg+xml"
             }
             if (firstImage != null) {
                 val path = resolvePath(parsedEpub.opfDir, firstImage.href)
@@ -110,32 +194,43 @@ class CoverExtractor @Inject constructor(
     }
 
     /**
-     * Finds the cover item ID from OPF meta tags.
-     * This requires reading the raw OPF again since ParsedEpub doesn't carry raw meta.
+     * Finds the cover item ID from OPF meta tags using XML parser.
+     * BUG-EPUB-009: Uses XmlPullParser instead of fragile regex.
      */
-    private fun findCoverMetaItemId(parsedEpub: ParsedEpub): String? {
+    private fun findCoverMetaItemId(parsedEpub: ParsedEpub, zip: ZipFile): String? {
         return try {
-            ZipFile(parsedEpub.bookFile).use { zip ->
-                // Find OPF path from container
-                val containerEntry = zip.getEntry("META-INF/container.xml")
-                    ?: return@use null
-                val opfPath = zip.getInputStream(containerEntry).use { stream ->
-                    val xml = stream.bufferedReader().use { it.readText() }
-                    val regex = Regex("full-path=\"([^\"]*)\"")
-                    regex.find(xml)?.groupValues?.get(1)
-                } ?: return@use null
+            // Find OPF path from container
+            val containerEntry = zip.getEntry("META-INF/container.xml")
+                ?: return null
+            val opfPath = zip.getInputStream(containerEntry).use { stream ->
+                stream.bufferedReader().use { it.readText() }
+            }.let { xml ->
+                val regex = Regex("""full-path=["']([^"']*)["']""")
+                regex.find(xml)?.groupValues?.get(1)
+            } ?: return null
 
-                val opfEntry = zip.getEntry(opfPath) ?: return@use null
-                val opfContent = zip.getInputStream(opfEntry).use { stream ->
-                    stream.bufferedReader().use { it.readText() }
-                }
+            val opfEntry = zip.getEntry(opfPath) ?: return null
 
-                // Look for meta name="cover" content="..."
-                val metaRegex = Regex("""<meta\s+[^>]*name="cover"[^>]*content="([^"]*)"""", RegexOption.IGNORE_CASE)
-                val match = metaRegex.find(opfContent)
-                match?.groupValues?.get(1)
+            // Use XML parser instead of regex (BUG-EPUB-009)
+            val factory = XmlPullParserFactory.newInstance().apply {
+                isNamespaceAware = true
             }
-        } catch (_: Exception) {
+            val parser = factory.newPullParser()
+            parser.setInput(zip.getInputStream(opfEntry), null)
+
+            var eventType = parser.eventType
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                if (eventType == XmlPullParser.START_TAG && parser.name == "meta") {
+                    val name = parser.getAttributeValue(null, "name")
+                    if (name != null && name.equals("cover", ignoreCase = true)) {
+                        return parser.getAttributeValue(null, "content")
+                    }
+                }
+                eventType = parser.next()
+            }
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse OPF meta for cover", e)
             null
         }
     }
@@ -159,7 +254,26 @@ class CoverExtractor @Inject constructor(
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
     }
 
+    /**
+     * Resolves and normalizes paths. BUG-EPUB-014: Handles ../ and ./ segments.
+     */
     private fun resolvePath(opfDir: String, href: String): String {
-        return if (opfDir.isEmpty()) href else "$opfDir/$href"
+        return normalizePath(if (opfDir.isEmpty()) href else "$opfDir/$href")
+    }
+
+    /**
+     * Normalizes a path by resolving . and .. segments. (BUG-EPUB-014)
+     */
+    private fun normalizePath(path: String): String {
+        val parts = path.split("/")
+        val result = mutableListOf<String>()
+        for (part in parts) {
+            when {
+                part == "." || part.isEmpty() -> continue
+                part == ".." -> if (result.isNotEmpty()) result.removeAt(result.lastIndex)
+                else -> result.add(part)
+            }
+        }
+        return result.joinToString("/")
     }
 }
