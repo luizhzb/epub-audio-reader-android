@@ -149,7 +149,7 @@ class PlaybackCoordinator @Inject constructor(
                     }
 
                     _state.update { it.copy(isPlaying = false, currentText = "") }
-                    Log.i(TAG, "Playback concluido — ${currentSegments.size} segmentos")
+                    Log.i(TAG, "Playback concluido - ${currentSegments.size} segmentos")
 
                 } catch (e: CancellationException) {
                     Log.d(TAG, "Playback cancelado pelo usuario")
@@ -187,7 +187,7 @@ class PlaybackCoordinator @Inject constructor(
 
             // Aguarda a duracao estimada do audio
             val durationMs = (cached.samples.size.toFloat() / cached.sampleRate * 1000).toLong()
-            Log.d(TAG, "Aguardando $durationStr ms de playback do segmento $index")
+            Log.d(TAG, "Aguardando ${durationMs}ms de playback do segmento $index")
             delay(durationMs)
             return
         }
@@ -202,13 +202,6 @@ class PlaybackCoordinator @Inject constructor(
             Log.e(TAG, "Erro no segmento $index: ${e.message}")
             _state.update { it.copy(error = e.message) }
         }
-    }
-
-    private val FloatArray.durationMs: Long
-        get() = (size.toFloat() / 22050 * 1000).toLong()
-
-    private fun durationStr(samples: Int, sampleRate: Int): Long {
-        return (samples.toFloat() / sampleRate * 1000).toLong()
     }
 
     fun pause() {
