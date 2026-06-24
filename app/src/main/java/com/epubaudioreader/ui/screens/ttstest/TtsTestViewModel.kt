@@ -171,17 +171,3 @@ class TtsTestViewModel @Inject constructor(
         synthesizer.stop()
     }
 }
-
-/** Estados do modelo TTS */
-enum class ModelStatus {
-    NOT_LOADED, COPYING, LOADING, READY, ERROR
-}
-
-/** Estado da UI da tela de teste TTS */
-data class TtsTestUiState(
-    val text: String = "Ola! Este e um teste de sintese de voz.",
-    val isPlaying: Boolean = false,
-    val modelStatus: ModelStatus = ModelStatus.NOT_LOADED,
-    val copyProgress: Float = 0f,
-    val error: String? = null
-)
