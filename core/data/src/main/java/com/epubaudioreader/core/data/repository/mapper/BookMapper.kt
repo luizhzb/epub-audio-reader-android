@@ -25,8 +25,12 @@ class BookMapper @Inject constructor() {
         lastReadPosition = entity.lastReadPosition
     )
 
+    /**
+     * Converts domain model to entity.
+     * Preserves the original importDate to prevent accidental overwrites during updates.
+     */
     fun toEntity(domain: Book): BookEntity = BookEntity(
-        id = if (domain.id == 0L) 0 else domain.id,
+        id = domain.id,
         title = domain.title,
         authors = domain.authors,
         language = domain.language,
