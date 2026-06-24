@@ -128,7 +128,10 @@ internal fun LibraryContent(
             )
         },
         floatingActionButton = {
-            ImportFab(onClick = onImportClick)
+            ImportFab(
+                onClick = onImportClick,
+                isLoading = uiState.isImporting
+            )
         }
     ) { innerPadding ->
         Box(
