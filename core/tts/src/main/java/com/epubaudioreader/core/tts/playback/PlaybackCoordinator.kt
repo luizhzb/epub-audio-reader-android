@@ -27,14 +27,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Coordenador central de playback de TTS com melhorias de robustez.
- * 
- * Melhorias:
- * 1. Verifica se AudioTrack esta inicializado antes de iniciar playback
- * 2. Try/catch em playSegment para evitar crash nativo
- * 3. Mensagens de erro amigaveis em portugues
- * 4. Verificacao de estado do sintetizador no fallback
- * 5. Protecao contra chamada com engine nao inicializado
+ * Coordenador central de playback de TTS com correcoes de crash.
+ *
+ * CORRECOES (AUDITORIA 2025-06-25):
+ * 1. segmenter.segment() AGORA tem try/catch completo - evita deadlock do Mutex
+ * 2. Logs TTS_TRACE detalhados em cada ponto do pipeline
+ * 3. Protecao contra chamada com engine nao inicializado
+ * 4. Verificacao de segmentos vazios apos segmentacao
  */
 @Singleton
 class PlaybackCoordinator @Inject constructor(
@@ -61,14 +60,13 @@ class PlaybackCoordinator @Inject constructor(
 
     /**
      * Inicia playback de paragrafos com verificacao de inicializacao.
-     * 
-     * Melhorias:
-     * - Verifica se AudioTrack esta inicializado antes de comecar
-     * - Retorna erro amigavel se sintetizador nao esta pronto
-     * - Mensagens de log detalhadas para diagnostico
+     *
+     * CORRECAO CRITICA: try/catch em torno de segmenter.segment() para evitar
+     * deadlock do Mutex. Se a segmentacao falhar, o mutex eh liberado e o erro
+     * eh reportado ao usuario.
      */
     fun playParagraphs(paragraphs: List<String>, startIndex: Int = 0) {
-        Log.i(TAG, "playParagraphs: ${paragraphs.size} paragrafos, indice=$startIndex")
+        Log.i(TAG, "[TTS_TRACE] playParagraphs: ${paragraphs.size} paragrafos, indice=$startIndex")
 
         scope.launch {
             mutex.withLock {
@@ -76,29 +74,47 @@ class PlaybackCoordinator @Inject constructor(
             }
 
             if (paragraphs.isEmpty()) {
+                Log.w(TAG, "[TTS_TRACE] Nenhum texto para ler")
                 _state.value = PlaybackState(error = "Nenhum texto para ler")
                 return@launch
             }
 
-            // MELHORIA: Verificar se sintetizador esta inicializado
+            // Verificar se sintetizador esta inicializado
             if (!synthesizer.isAudioTrackInitialized()) {
-                Log.e(TAG, "AudioTrack nao inicializado. Modelo TTS nao esta pronto.")
+                Log.e(TAG, "[TTS_TRACE] AudioTrack nao inicializado. Modelo TTS nao esta pronto.")
                 _state.value = PlaybackState(
                     error = "Modelo de voz nao carregado. Carregue o modelo primeiro."
                 )
                 return@launch
             }
 
-            val currentSegments = mutex.withLock {
-                segments = segmenter.segment(paragraphs)
-                segments
+            // === CORRECAO CRITICA: try/catch ao redor de segmenter.segment() ===
+            val currentSegments = try {
+                mutex.withLock {
+                    Log.d(TAG, "[TTS_TRACE] Iniciando segmentacao de ${paragraphs.size} paragrafos...")
+                    segments = segmenter.segment(paragraphs)
+                    Log.d(TAG, "[TTS_TRACE] Segmentacao concluida: ${segments.size} segmentos")
+                    segments
+                }
+            } catch (e: CancellationException) {
+                Log.d(TAG, "[TTS_TRACE] Segmentacao cancelada pelo usuario")
+                _state.value = PlaybackState(error = "Leitura cancelada")
+                return@launch
+            } catch (e: Exception) {
+                Log.e(TAG, "[TTS_TRACE] ERRO NA SEGMENTACAO: ${e.message}", e)
+                _state.value = PlaybackState(
+                    error = "Erro ao dividir texto em segmentos: ${e.message}"
+                )
+                return@launch
             }
 
-            Log.i(TAG, "${currentSegments.size} segmentos criados a partir de ${paragraphs.size} paragrafos")
             if (currentSegments.isEmpty()) {
+                Log.w(TAG, "[TTS_TRACE] Nenhum segmento valido gerado")
                 _state.value = PlaybackState(error = "Nenhum segmento valido para leitura")
                 return@launch
             }
+
+            Log.i(TAG, "[TTS_TRACE] ${currentSegments.size} segmentos criados a partir de ${paragraphs.size} paragrafos")
 
             pipeline.start(currentSegments)
             pipeline.prefetchUpTo(startIndex, PREFETCH_AHEAD)
@@ -115,6 +131,7 @@ class PlaybackCoordinator @Inject constructor(
 
                 try {
                     // Aguarda o primeiro segmento ficar pronto
+                    Log.d(TAG, "[TTS_TRACE] Aguardando primeiro segmento ($startIndex)...")
                     val waitCount = AtomicInteger(0)
                     while (isActive &&
                         pipeline.getAudio(startIndex) == null &&
@@ -125,12 +142,12 @@ class PlaybackCoordinator @Inject constructor(
                     }
 
                     if (!isActive) {
-                        Log.d(TAG, "Playback cancelado durante preparacao")
+                        Log.d(TAG, "[TTS_TRACE] Playback cancelado durante preparacao")
                         return@launch
                     }
 
                     if (pipeline.getAudio(startIndex) == null) {
-                        Log.w(TAG, "Timeout aguardando primeiro segmento")
+                        Log.w(TAG, "[TTS_TRACE] Timeout aguardando primeiro segmento")
                         _state.update {
                             it.copy(
                                 isPreparing = false,
@@ -141,14 +158,19 @@ class PlaybackCoordinator @Inject constructor(
                         return@launch
                     }
 
+                    Log.i(TAG, "[TTS_TRACE] Primeiro segmento pronto. Iniciando playback.")
                     _state.update { it.copy(isPreparing = false, isPlaying = true) }
 
                     for (i in startIndex until currentSegments.size) {
-                        if (!isActive) break
+                        if (!isActive) {
+                            Log.d(TAG, "[TTS_TRACE] Playback interrompido no segmento $i")
+                            break
+                        }
 
                         yield()
 
                         val segment = currentSegments[i]
+                        Log.d(TAG, "[TTS_TRACE] Segmento $i/${currentSegments.size}: '${segment.text.take(60)}...'")
                         _state.update {
                             it.copy(currentSegmentIndex = i, currentText = segment.text)
                         }
@@ -162,13 +184,13 @@ class PlaybackCoordinator @Inject constructor(
                     }
 
                     _state.update { it.copy(isPlaying = false, currentText = "") }
-                    Log.i(TAG, "Playback concluido - ${currentSegments.size} segmentos")
+                    Log.i(TAG, "[TTS_TRACE] Playback concluido - ${currentSegments.size} segmentos")
 
                 } catch (e: CancellationException) {
-                    Log.d(TAG, "Playback cancelado pelo usuario")
+                    Log.d(TAG, "[TTS_TRACE] Playback cancelado pelo usuario")
                     _state.update { it.copy(isPlaying = false, isPreparing = false) }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Erro fatal no playback: ${e.message}", e)
+                    Log.e(TAG, "[TTS_TRACE] Erro fatal no playback: ${e.message}", e)
                     _state.update {
                         it.copy(
                             isPlaying = false,
@@ -187,59 +209,68 @@ class PlaybackCoordinator @Inject constructor(
 
     /**
      * Reproduz um segmento individual com protecao contra falhas.
-     * 
-     * Melhorias:
-     * - Try/catch completo para evitar crash nativo
-     * - Verifica AudioTrack antes do fallback de sintese direta
-     * - Mensagens de erro detalhadas por segmento
      */
     private suspend fun playSegment(index: Int) {
-        Log.d(TAG, "playSegment($index)")
+        Log.d(TAG, "[TTS_TRACE] playSegment($index) INICIO")
 
         try {
             // Tenta tocar do cache primeiro
+            Log.d(TAG, "[TTS_TRACE] Aguardando audio segmento $index...")
             val cached = pipeline.awaitAudio(index, timeoutMs = WAIT_DELAY_MS * MAX_WAIT_CYCLES)
+
             if (cached != null && cached.samples.isNotEmpty()) {
-                Log.d(TAG, "Tocando segmento $index do cache (${cached.samples.size} samples)")
+                Log.d(TAG, "[TTS_TRACE] Tocando segmento $index do cache (${cached.samples.size} samples, sr=${cached.sampleRate})")
                 val result = synthesizer.playSamples(cached.samples, cached.sampleRate)
                 result.onFailure { e ->
-                    Log.e(TAG, "Erro ao tocar segmento $index do cache: ${e.message}")
+                    Log.e(TAG, "[TTS_TRACE] Erro ao tocar segmento $index do cache: ${e.message}")
                     _state.update { it.copy(error = "Erro de audio: ${e.message}") }
+                }
+                result.onSuccess {
+                    Log.d(TAG, "[TTS_TRACE] Segmento $index do cache concluido")
                 }
 
                 val durationMs = (cached.samples.size.toFloat() / cached.sampleRate * 1000).toLong()
-                Log.d(TAG, "Aguardando ${durationMs}ms de playback do segmento $index")
+                Log.d(TAG, "[TTS_TRACE] Aguardando ${durationMs}ms de playback do segmento $index")
                 delay(durationMs)
+                Log.d(TAG, "[TTS_TRACE] playSegment($index) FIM (cache)")
                 return
             }
+
+            Log.d(TAG, "[TTS_TRACE] Cache miss segmento $index, usando sintese direta")
 
             // Fallback: sintese direta via speak
             val currentSegments = mutex.withLock { segments }
             val segment = currentSegments.getOrNull(index) ?: return
 
-            // MELHORIA: Verificar AudioTrack antes do fallback
+            // Verificar AudioTrack antes do fallback
             if (!synthesizer.isAudioTrackInitialized()) {
-                Log.e(TAG, "AudioTrack nao inicializado no fallback do segmento $index")
+                Log.e(TAG, "[TTS_TRACE] AudioTrack nao inicializado no fallback do segmento $index")
                 _state.update { it.copy(error = "Audio nao inicializado") }
                 return
             }
 
-            Log.d(TAG, "Tocando segmento $index por geracao direta: '${segment.text.take(50)}...'")
+            Log.d(TAG, "[TTS_TRACE] Tocando segmento $index por geracao direta: '${segment.text.take(50)}...'")
             val result = synthesizer.speak(segment.text, onComplete = null)
             result.onFailure { e ->
-                Log.e(TAG, "Erro no segmento $index: ${e.message}")
+                Log.e(TAG, "[TTS_TRACE] Erro no segmento $index: ${e.message}")
                 _state.update { it.copy(error = "Erro na sintese: ${e.message}") }
             }
+            result.onSuccess {
+                Log.d(TAG, "[TTS_TRACE] Segmento $index por geracao direta concluido")
+            }
+
+            Log.d(TAG, "[TTS_TRACE] playSegment($index) FIM (direto)")
         } catch (e: CancellationException) {
-            // Re-lanca para que o loop principal capture
+            Log.d(TAG, "[TTS_TRACE] playSegment($index) cancelado")
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "Erro fatal em playSegment($index): ${e.message}", e)
+            Log.e(TAG, "[TTS_TRACE] Erro fatal em playSegment($index): ${e.message}", e)
             _state.update { it.copy(error = "Erro ao reproduzir segmento: ${e.message}") }
         }
     }
 
     fun pause() {
+        Log.i(TAG, "[TTS_TRACE] pause()")
         playbackJob?.cancel()
         scope.launch {
             mutex.withLock {
@@ -247,16 +278,17 @@ class PlaybackCoordinator @Inject constructor(
             }
             synthesizer.stop()
             _state.update { it.copy(isPlaying = false, isPreparing = false) }
-            Log.d(TAG, "Playback pausado")
+            Log.d(TAG, "[TTS_TRACE] Playback pausado")
         }
     }
 
     fun stop() {
+        Log.i(TAG, "[TTS_TRACE] stop()")
         scope.launch {
             mutex.withLock {
                 stopInternal()
             }
-            Log.d(TAG, "Playback parado e estado resetado")
+            Log.d(TAG, "[TTS_TRACE] Playback parado e estado resetado")
         }
     }
 
@@ -277,9 +309,10 @@ class PlaybackCoordinator @Inject constructor(
     }
 
     fun release() {
+        Log.i(TAG, "[TTS_TRACE] release()")
         stop()
         scope.coroutineContext.cancelChildren()
         scope.cancel()
-        Log.d(TAG, "PlaybackCoordinator liberado")
+        Log.d(TAG, "[TTS_TRACE] PlaybackCoordinator liberado")
     }
 }

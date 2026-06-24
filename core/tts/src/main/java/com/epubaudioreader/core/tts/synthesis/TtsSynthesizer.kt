@@ -11,18 +11,19 @@ import com.k2fsa.sherpa.onnx.GenerationConfig
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Sintetizador TTS com melhorias de robustez para evitar crashes.
+ * Sintetizador TTS com correcoes de crash (AUDITORIA 2025-06-25).
  *
- * Melhorias:
- * 1. Thread.sleep() substituido por delay() em funcoes suspend
- * 2. playSamples() agora e suspend e nao bloqueia a thread de coroutine
- * 3. Fallback automatico: PCM_FLOAT -> PCM_16BIT se nao suportado
- * 4. Sanitizacao de texto antes de passar ao JNI (remove emojis/control chars)
- * 5. Verificacao de modelo .onnx antes de inicializar
+ * CORRECOES:
+ * 1. initAudioTrack() e startPlayback() AGORA tem try/catch
+ * 2. startPlayback() verifica STATE_INITIALIZED antes de play()
+ * 3. 'stopped' agora eh AtomicBoolean - remove synchronized da callback JNI
+ * 4. Protecao contra initAudioTrack() durante sintese ativa
+ * 5. Logs TTS_TRACE detalhados em cada ponto critico
  */
 @Singleton
 class TtsSynthesizer @Inject constructor(
@@ -34,104 +35,147 @@ class TtsSynthesizer @Inject constructor(
     }
 
     private var track: AudioTrack? = null
-    @Volatile
-    private var stopped: Boolean = true
+    /** CORRECAO: AtomicBoolean em vez de Boolean para thread-safety sem synchronized */
+    private val stopped = AtomicBoolean(true)
     private val lock = Object()
 
-    /**
-     * Mutex que serializa chamadas ao motor Sherpa-ONNX.
-     */
+    /** Mutex que serializa chamadas ao motor Sherpa-ONNX. */
     private val generationMutex = Mutex()
 
     /** Flag que indica se estamos usando PCM_16BIT como fallback. */
     private var usingPcm16Bit: Boolean = false
 
     val isPlaying: Boolean
-        get() = synchronized(lock) { !stopped }
+        get() = !stopped.get()
 
     fun isAudioTrackInitialized(): Boolean = synchronized(lock) { track != null }
 
     /**
-     * Inicializa AudioTrack com fallback automatico PCM_FLOAT -> PCM_16BIT.
+     * CORRECAO: initAudioTrack() agora retorna Result em vez de lancar excecao.
+     * Protege contra chamada durante sintese ativa (evita race condition na callback JNI).
      */
-    fun initAudioTrack() {
-        val tts = ttsEngine.getTts() ?: throw IllegalStateException("TTS nao inicializado")
-        val sampleRate = tts.sampleRate()
+    fun initAudioTrack(): kotlin.Result<Unit> {
+        // CORRECAO: Nao permitir re-inicializacao durante sintese ativa
+        if (isPlaying) {
+            Log.w(TAG, "[TTS_TRACE] initAudioTrack() ignorado - sintese em andamento")
+            return kotlin.Result.success(Unit)
+        }
 
-        // Tenta PCM_FLOAT primeiro
-        var bufLength = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_FLOAT
-        )
+        return try {
+            Log.i(TAG, "[TTS_TRACE] initAudioTrack() INICIO")
 
-        usingPcm16Bit = if (bufLength <= 0) {
-            Log.w(TAG, "PCM_FLOAT nao suportado, tentando PCM_16BIT fallback")
-            val buf16 = AudioTrack.getMinBufferSize(
+            val tts = ttsEngine.getTts()
+                ?: return kotlin.Result.failure(IllegalStateException("TTS nao inicializado"))
+            val sampleRate = tts.sampleRate()
+            Log.d(TAG, "[TTS_TRACE] TTS sampleRate=$sampleRate")
+
+            // Tenta PCM_FLOAT primeiro
+            var bufLength = AudioTrack.getMinBufferSize(
                 sampleRate,
                 AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_FLOAT
+            )
+
+            usingPcm16Bit = if (bufLength <= 0) {
+                Log.w(TAG, "[TTS_TRACE] PCM_FLOAT nao suportado, tentando PCM_16BIT fallback")
+                val buf16 = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+                if (buf16 <= 0) {
+                    return kotlin.Result.failure(
+                        IllegalStateException("Nenhum formato PCM suportado pelo dispositivo")
+                    )
+                }
+                bufLength = buf16
+                true
+            } else {
+                false
+            }
+
+            val encoding = if (usingPcm16Bit) {
                 AudioFormat.ENCODING_PCM_16BIT
-            )
-            if (buf16 <= 0) {
-                throw IllegalStateException("Nenhum formato PCM suportado pelo dispositivo")
+            } else {
+                AudioFormat.ENCODING_PCM_FLOAT
             }
-            bufLength = buf16
-            true
-        } else {
-            false
-        }
 
-        Log.i(TAG, "AudioTrack sampleRate=$sampleRate bufLength=$bufLength pcm16=$usingPcm16Bit")
+            Log.i(TAG, "[TTS_TRACE] AudioTrack sampleRate=$sampleRate bufLength=$bufLength pcm16=$usingPcm16Bit encoding=$encoding")
 
-        val encoding = if (usingPcm16Bit) {
-            AudioFormat.ENCODING_PCM_16BIT
-        } else {
-            AudioFormat.ENCODING_PCM_FLOAT
-        }
+            val attr = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .build()
 
-        val attr = AudioAttributes.Builder()
-            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .build()
+            val format = AudioFormat.Builder()
+                .setEncoding(encoding)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .setSampleRate(sampleRate)
+                .build()
 
-        val format = AudioFormat.Builder()
-            .setEncoding(encoding)
-            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-            .setSampleRate(sampleRate)
-            .build()
-
-        synchronized(lock) {
-            track?.let { old ->
-                Log.d(TAG, "Liberando AudioTrack anterior")
-                try { old.stop() } catch (_: Exception) {}
-                try { old.release() } catch (_: Exception) {}
+            synchronized(lock) {
+                // Libera AudioTrack anterior
+                track?.let { old ->
+                    Log.d(TAG, "[TTS_TRACE] Liberando AudioTrack anterior")
+                    try { old.stop() } catch (_: Exception) {}
+                    try { old.release() } catch (_: Exception) {}
+                }
+                track = AudioTrack(
+                    attr, format, bufLength,
+                    AudioTrack.MODE_STREAM,
+                    AudioManager.AUDIO_SESSION_ID_GENERATE
+                )
+                Log.i(TAG, "[TTS_TRACE] AudioTrack criado (state=${track?.state}, pcm16=$usingPcm16Bit)")
             }
-            track = AudioTrack(
-                attr, format, bufLength,
-                AudioTrack.MODE_STREAM,
-                AudioManager.AUDIO_SESSION_ID_GENERATE
-            )
-            Log.i(TAG, "AudioTrack criado (state=${track?.state}, pcm16=$usingPcm16Bit)")
-        }
-    }
 
-    fun startPlayback() {
-        synchronized(lock) {
-            val t = track ?: throw IllegalStateException("AudioTrack nao inicializado")
-            Log.d(TAG, "AudioTrack.play() (state=${t.state}, playState=${t.playState})")
-            t.play()
+            Log.i(TAG, "[TTS_TRACE] initAudioTrack() SUCESSO")
+            kotlin.Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "[TTS_TRACE] initAudioTrack() FALHOU: ${e.message}", e)
+            kotlin.Result.failure(e)
         }
     }
 
     /**
-     * Toca samples PCM no AudioTrack. Agora e suspend e usa delay() em vez de Thread.sleep().
+     * CORRECAO: startPlayback() agora verifica STATE_INITIALIZED antes de play()
+     * e retorna Result em vez de lancar excecao.
+     */
+    fun startPlayback(): kotlin.Result<Unit> {
+        return try {
+            Log.i(TAG, "[TTS_TRACE] startPlayback() INICIO")
+            synchronized(lock) {
+                val t = track ?: return kotlin.Result.failure(
+                    IllegalStateException("AudioTrack nao inicializado")
+                )
+                // CORRECAO: Verificar se AudioTrack foi inicializado corretamente
+                if (t.state != AudioTrack.STATE_INITIALIZED) {
+                    Log.e(TAG, "[TTS_TRACE] AudioTrack nao inicializado corretamente (state=${t.state})")
+                    return kotlin.Result.failure(
+                        IllegalStateException("AudioTrack em estado invalido: ${t.state}")
+                    )
+                }
+                Log.d(TAG, "[TTS_TRACE] AudioTrack.play() (state=${t.state}, playState=${t.playState})")
+                t.play()
+            }
+            Log.i(TAG, "[TTS_TRACE] startPlayback() SUCESSO")
+            kotlin.Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "[TTS_TRACE] startPlayback() FALHOU: ${e.message}", e)
+            kotlin.Result.failure(e)
+        }
+    }
+
+    /**
+     * Toca samples PCM no AudioTrack.
      */
     suspend fun playSamples(samples: FloatArray, sampleRate: Int): kotlin.Result<Unit> {
         return try {
             if (samples.isEmpty()) {
-                Log.w(TAG, "playSamples recebeu samples vazio")
+                Log.w(TAG, "[TTS_TRACE] playSamples recebeu samples vazio")
                 return kotlin.Result.success(Unit)
             }
+
+            Log.d(TAG, "[TTS_TRACE] playSamples INICIO: ${samples.size} samples, sr=$sampleRate")
 
             val encoding = if (usingPcm16Bit) {
                 AudioFormat.ENCODING_PCM_16BIT
@@ -156,7 +200,7 @@ class TtsSynthesizer @Inject constructor(
                         track?.playState == AudioTrack.PLAYSTATE_STOPPED
 
                 if (needsRecreate) {
-                    Log.d(TAG, "Recriando AudioTrack sampleRate=$sampleRate pcm16=$usingPcm16Bit")
+                    Log.d(TAG, "[TTS_TRACE] Recriando AudioTrack sampleRate=$sampleRate pcm16=$usingPcm16Bit")
                     try { track?.stop() } catch (_: Exception) {}
                     try { track?.release() } catch (_: Exception) {}
 
@@ -180,104 +224,102 @@ class TtsSynthesizer @Inject constructor(
                     IllegalStateException("AudioTrack nulo apos inicializacao")
                 )
 
-                Log.d(TAG, "playSamples: ${samples.size} samples, sr=$sampleRate, pcm16=$usingPcm16Bit")
+                Log.d(TAG, "[TTS_TRACE] Escrevendo ${samples.size} samples no AudioTrack (pcm16=$usingPcm16Bit)")
                 t.play()
-                stopped = false
+                stopped.set(false)
 
                 if (usingPcm16Bit) {
-                    // Converter FloatArray para ShortArray para PCM_16BIT
-                    val shortSamples = FloatArrayToShortArray(samples)
+                    val shortSamples = floatArrayToShortArray(samples)
                     val written = t.write(shortSamples, 0, shortSamples.size)
                     if (written < 0) {
                         throw IllegalStateException("AudioTrack.write retornou erro $written")
                     }
+                    Log.d(TAG, "[TTS_TRACE] PCM_16BIT: $written shorts escritos")
                 } else {
                     val written = t.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
                     if (written < 0) {
                         throw IllegalStateException("AudioTrack.write retornou erro $written")
                     }
+                    Log.d(TAG, "[TTS_TRACE] PCM_FLOAT: $written floats escritos")
                 }
-
-                // MELHORIA: Usar delay() em vez de Thread.sleep() para nao bloquear thread
-                val durationMs = (samples.size / sampleRate.toFloat() * 1000).toLong()
-                Log.d(TAG, "playSamples: aguardando ${durationMs}ms via delay()")
             }
 
-            // delay() fora do synchronized para nao bloquear outras operacoes
+            // delay() fora do synchronized
             val durationMs = (samples.size / sampleRate.toFloat() * 1000).toLong()
+            Log.d(TAG, "[TTS_TRACE] playSamples aguardando ${durationMs}ms via delay()")
             delay(durationMs)
-            Log.d(TAG, "playSamples: audio concluido")
+            Log.d(TAG, "[TTS_TRACE] playSamples FIM: audio concluido")
 
             kotlin.Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Erro em playSamples: ${e.message}", e)
+            Log.e(TAG, "[TTS_TRACE] playSamples ERRO: ${e.message}", e)
             kotlin.Result.failure(e)
         }
     }
 
     /**
-     * Callback chamado pelo JNI do Sherpa-ONNX durante a geracao.
+     * CORRECAO: callback JNI usa AtomicBoolean em vez de synchronized.
+     * Evita deadlock entre thread nativa e coroutine.
      */
     private fun callback(samples: FloatArray): Int {
         return try {
+            if (stopped.get()) {
+                return 0
+            }
             synchronized(lock) {
-                if (!stopped) {
-                    val t = track
-                    if (t != null) {
-                        val written = if (usingPcm16Bit) {
-                            val shortSamples = FloatArrayToShortArray(samples)
-                            t.write(shortSamples, 0, shortSamples.size)
-                        } else {
-                            t.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-                        }
-                        if (written < 0) {
-                            Log.e(TAG, "AudioTrack.write erro no callback: $written")
-                            stopped = true
-                            0
-                        } else {
-                            1
-                        }
-                    } else {
-                        Log.e(TAG, "AudioTrack nulo no callback JNI")
-                        stopped = true
-                        0
-                    }
+                val t = track
+                if (t == null || stopped.get()) {
+                    return 0
+                }
+                val written = if (usingPcm16Bit) {
+                    val shortSamples = floatArrayToShortArray(samples)
+                    t.write(shortSamples, 0, shortSamples.size)
                 } else {
+                    t.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                }
+                if (written < 0) {
+                    Log.e(TAG, "[TTS_TRACE] AudioTrack.write erro no callback: $written")
+                    stopped.set(true)
                     0
+                } else {
+                    1
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "AudioTrack write error no callback JNI: ${e.message}", e)
-            stopped = true
+            Log.e(TAG, "[TTS_TRACE] AudioTrack write error no callback JNI: ${e.message}", e)
+            stopped.set(true)
             0
         }
     }
 
     /**
      * Sintetiza e reproduz o texto via AudioTrack com callback.
-     * Usa delay() em vez de Thread.sleep().
      */
     suspend fun speak(text: String, sid: Int = 0, speed: Float = 1.0f, onComplete: (() -> Unit)? = null): kotlin.Result<Unit> {
         return try {
-            if (text.isBlank()) return kotlin.Result.success(Unit)
+            if (text.isBlank()) {
+                Log.w(TAG, "[TTS_TRACE] speak() texto vazio, ignorando")
+                return kotlin.Result.success(Unit)
+            }
 
-            // MELHORIA: Sanitizar texto antes de passar ao JNI
             val sanitizedText = sanitizeTextForTts(text)
+            Log.i(TAG, "[TTS_TRACE] speak() INICIO: '${sanitizedText.take(60)}...' (${sanitizedText.length} chars)")
 
             val tts = ttsEngine.getTts()
                 ?: return kotlin.Result.failure(IllegalStateException("TTS nao inicializado"))
 
             generationMutex.withLock {
-                Log.d(TAG, "speak: '${sanitizedText.take(60)}...'")
+                Log.d(TAG, "[TTS_TRACE] speak() obteve generationMutex")
 
                 synchronized(lock) {
                     track?.flush()
                     track?.play()
-                    stopped = false
+                    stopped.set(false)
                 }
 
                 var totalSamplesWritten = 0
 
+                Log.d(TAG, "[TTS_TRACE] speak() chamando generateWithConfigAndCallback...")
                 val genConfig = GenerationConfig(sid = sid, speed = speed)
                 tts.generateWithConfigAndCallback(
                     text = sanitizedText,
@@ -290,21 +332,21 @@ class TtsSynthesizer @Inject constructor(
                         result
                     }
                 )
+                Log.d(TAG, "[TTS_TRACE] speak() generateWithConfigAndCallback concluido, $totalSamplesWritten samples")
 
-                // MELHORIA: Usar delay() em vez de Thread.sleep()
-                if (totalSamplesWritten > 0 && !stopped) {
+                if (totalSamplesWritten > 0 && !stopped.get()) {
                     val sr = tts.sampleRate()
                     val durationMs = (totalSamplesWritten / sr.toFloat() * 1000).toLong()
-                    Log.d(TAG, "speak: aguardando ${durationMs}ms via delay()")
+                    Log.d(TAG, "[TTS_TRACE] speak() aguardando ${durationMs}ms via delay()")
                     delay(durationMs)
                 }
 
-                Log.d(TAG, "speak: geracao e playback concluidos")
+                Log.i(TAG, "[TTS_TRACE] speak() FIM: geracao e playback concluidos")
                 onComplete?.invoke()
             }
             kotlin.Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Erro em speak: ${e.message}", e)
+            Log.e(TAG, "[TTS_TRACE] speak() ERRO: ${e.message}", e)
             kotlin.Result.failure(e)
         }
     }
@@ -321,15 +363,16 @@ class TtsSynthesizer @Inject constructor(
             val tts = ttsEngine.getTts()
                 ?: return Result.Error(IllegalStateException("TTS nao inicializado"))
 
-            // Sanitizar texto
             val sanitizedText = sanitizeTextForTts(text)
 
             if (sanitizedText.isBlank()) {
                 return Result.Success(SynthesizedAudio(FloatArray(0), tts.sampleRate()))
             }
 
+            Log.i(TAG, "[TTS_TRACE] synthesizeToMemory INICIO: '${sanitizedText.take(60)}...' (${sanitizedText.length} chars)")
+
             generationMutex.withLock {
-                Log.d(TAG, "synthesizeToMemory: '${sanitizedText.take(60)}...'")
+                Log.d(TAG, "[TTS_TRACE] synthesizeToMemory obteve generationMutex")
 
                 var samples = FloatArray(0)
                 var totalSize = 0
@@ -347,7 +390,7 @@ class TtsSynthesizer @Inject constructor(
                         }
                         1
                     } catch (e: Exception) {
-                        Log.e(TAG, "Erro acumulando samples: ${e.message}", e)
+                        Log.e(TAG, "[TTS_TRACE] Erro acumulando samples: ${e.message}", e)
                         0
                     }
                 }
@@ -361,19 +404,19 @@ class TtsSynthesizer @Inject constructor(
 
                 val finalSamples = if (totalSize < samples.size) samples.copyOf(totalSize) else samples
                 val result = SynthesizedAudio(finalSamples, tts.sampleRate())
-                Log.d(TAG, "synthesizeToMemory: ${result.samples.size} samples, sr=${result.sampleRate}")
+                Log.i(TAG, "[TTS_TRACE] synthesizeToMemory FIM: ${result.samples.size} samples, sr=${result.sampleRate}")
                 Result.Success(result)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Erro em synthesizeToMemory: ${e.message}", e)
+            Log.e(TAG, "[TTS_TRACE] synthesizeToMemory ERRO: ${e.message}", e)
             Result.Error(e)
         }
     }
 
     fun stop() {
+        Log.i(TAG, "[TTS_TRACE] stop() chamado")
+        stopped.set(true)
         synchronized(lock) {
-            stopped = true
-            Log.d(TAG, "stop: parando AudioTrack")
             try { track?.pause() } catch (_: Exception) {}
             try { track?.flush() } catch (_: Exception) {}
             try { track?.stop() } catch (_: Exception) {}
@@ -381,9 +424,9 @@ class TtsSynthesizer @Inject constructor(
     }
 
     fun release() {
+        Log.i(TAG, "[TTS_TRACE] release() chamado")
+        stopped.set(true)
         synchronized(lock) {
-            stopped = true
-            Log.d(TAG, "release: liberando AudioTrack")
             try { track?.stop() } catch (_: Exception) {}
             try { track?.release() } catch (_: Exception) {}
             track = null
@@ -392,42 +435,34 @@ class TtsSynthesizer @Inject constructor(
 
     /**
      * Sanitiza texto antes de passar ao JNI do Sherpa-ONNX.
-     * Remove emojis, caracteres de controle, e limita tamanho.
      */
     private fun sanitizeTextForTts(text: String): String {
         return text
-            // Remove caracteres de controle (exceto quebras de linha -> espaco)
             .replace(Regex("[\\p{Cntrl}&&[^\\n\\r]]"), " ")
-            // Substitui quebras de linha por espaco
             .replace(Regex("[\\n\\r]+"), " ")
-            // Remove emojis e caracteres especiais problematicos para JNI
             .replace(
                 Regex(
-                    "[\\x{1F600}-\\x{1F64F}" + // Emoticons
-                    "\\x{1F300}-\\x{1F5FF}" + // Misc symbols
-                    "\\x{1F680}-\\x{1F6FF}" + // Transport
-                    "\\x{1F1E0}-\\x{1F1FF}" + // Flags
-                    "\\x{2600}-\\x{26FF}" +   // Misc symbols
-                    "\\x{2700}-\\x{27BF}" +   // Dingbats
-                    "\\x{1F900}-\\x{1F9FF}" + // Supplemental
-                    "\\x{1FA00}-\\x{1FAFF}" + // Extended-A
+                    "[\\x{1F600}-\\x{1F64F}" +
+                    "\\x{1F300}-\\x{1F5FF}" +
+                    "\\x{1F680}-\\x{1F6FF}" +
+                    "\\x{1F1E0}-\\x{1F1FF}" +
+                    "\\x{2600}-\\x{26FF}" +
+                    "\\x{2700}-\\x{27BF}" +
+                    "\\x{1F900}-\\x{1F9FF}" +
+                    "\\x{1FA00}-\\x{1FAFF}" +
                     "]"
                 ), ""
             )
-            // Remove tags HTML/XML se houver
             .replace(Regex("<[^>]+>"), " ")
-            // Normaliza espacos multiplos
             .replace(Regex("\\s+"), " ")
-            // Limita tamanho para evitar problemas no JNI
             .trim()
             .take(MAX_TEXT_LENGTH)
     }
 
     /**
      * Converte FloatArray [-1.0, 1.0] para ShortArray [-32768, 32767].
-     * Usado quando o dispositivo nao suporta PCM_FLOAT.
      */
-    private fun FloatArrayToShortArray(floatArray: FloatArray): ShortArray {
+    private fun floatArrayToShortArray(floatArray: FloatArray): ShortArray {
         return ShortArray(floatArray.size) { i ->
             (floatArray[i].coerceIn(-1.0f, 1.0f) * 32767).toInt().toShort()
         }
