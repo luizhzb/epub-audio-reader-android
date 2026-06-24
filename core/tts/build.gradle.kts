@@ -35,7 +35,6 @@ dependencies {
     implementation(libs.bundles.hilt)
     ksp(libs.hilt.compiler)
     implementation(libs.bundles.coroutines)
-    implementation(libs.androidx.core.ktx)
     // Sherpa-ONNX: AAR oficial do Maven Central (inclui .so JNI para Android)
     implementation(libs.sherpa.onnx)
 }
