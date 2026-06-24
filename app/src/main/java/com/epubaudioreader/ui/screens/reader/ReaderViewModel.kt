@@ -3,7 +3,6 @@ package com.epubaudioreader.ui.screens.reader
 import android.util.Log
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubaudioreader.core.domain.usecase.reader.GetChapterContentUseCase
@@ -59,9 +58,6 @@ class ReaderViewModel @Inject constructor(
     }
 
     init {
-        // Register for app lifecycle events to pause TTS when app goes to background
-        ProcessLifecycleOwner.get().lifecycle.addObserver(this)
-
         progressFlow
             .filter { it != null }
             .debounce(1000L)
@@ -137,9 +133,9 @@ class ReaderViewModel @Inject constructor(
     }
 
     override fun onStop(owner: LifecycleOwner) {
-        // Pause TTS when app goes to background (BUG-READ-010)
+        // Pause TTS when the lifecycle owner stops (fragment/activity pause)
         if (_uiState.value.isTtsPlaying) {
-            Log.i(TAG, "App going to background, pausing TTS")
+            Log.i(TAG, "Lifecycle stopping, pausing TTS")
             playbackCoordinator.pause()
         }
     }
@@ -321,7 +317,6 @@ class ReaderViewModel @Inject constructor(
         super.onCleared()
         // Only stop playback; do NOT release the singleton coordinator (BUG-READ-011)
         playbackCoordinator.stop()
-        ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
         // Do NOT release the engine or synthesizer here: they are singletons
         // shared with other screens (e.g., TtsTestScreen).
     }
