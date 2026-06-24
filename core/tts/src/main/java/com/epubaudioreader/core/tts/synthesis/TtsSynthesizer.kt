@@ -7,7 +7,6 @@ import android.media.AudioTrack
 import android.util.Log
 import com.epubaudioreader.core.common.result.Result
 import com.epubaudioreader.core.tts.engine.TtsEngine
-import com.k2fsa.sherpa.onnx.GenerationConfig
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -237,10 +236,10 @@ class TtsSynthesizer @Inject constructor(
                 var totalSamplesWritten = 0
 
                 // Gerar com callback (thread de background)
-                val genConfig = GenerationConfig(sid = sid, speed = speed)
-                tts.generateWithConfigAndCallback(
+                tts.generateWithCallback(
                     text = text,
-                    config = genConfig,
+                    sid = sid,
+                    speed = speed,
                     callback = { samples ->
                         val result = callback(samples)
                         if (result == 1) {
@@ -313,10 +312,10 @@ class TtsSynthesizer @Inject constructor(
                     }
                 }
 
-                val genConfig = GenerationConfig(sid = sid, speed = speed)
-                tts.generateWithConfigAndCallback(
+                tts.generateWithCallback(
                     text = text,
-                    config = genConfig,
+                    sid = sid,
+                    speed = speed,
                     callback = memoryCallback
                 )
 
