@@ -2,10 +2,8 @@
 <full-backup-content>
     <!-- Exclude TTS model directory from backup to avoid large backup sizes -->
     <exclude domain="file" path="tts_models/" />
-    <!-- Exclude app cache -->
+    <!-- Exclude external cache -->
     <exclude domain="external" path="cache/" />
-    <!-- Exclude internal cache -->
-    <exclude domain="cache" path="." />
-    <!-- Exclude internal no_backup directory -->
-    <exclude domain="no_backup" path="." />
+    <!-- Exclude internal cache files -->
+    <exclude domain="file" path="cache/" />
 </full-backup-content>
