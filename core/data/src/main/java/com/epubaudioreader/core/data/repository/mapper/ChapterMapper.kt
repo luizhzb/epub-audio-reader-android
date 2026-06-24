@@ -19,7 +19,7 @@ class ChapterMapper @Inject constructor() {
     )
 
     fun toEntity(domain: Chapter): ChapterEntity = ChapterEntity(
-        id = if (domain.id == 0L) 0 else domain.id,
+        id = domain.id,
         bookId = domain.bookId,
         title = domain.title,
         orderIndex = domain.orderIndex,
