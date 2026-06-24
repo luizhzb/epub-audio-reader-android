@@ -25,8 +25,11 @@ import javax.inject.Singleton
 /**
  * Coordenador central de playback de TTS.
  *
- * Integra segmentação de texto, pipeline de síntese e reprodução,
+ * Integra segmentacao de texto, pipeline de sintese e reproducao,
  * fornecendo um StateFlow unificado para a UI observar.
+ *
+ * O playback roda em [Dispatchers.IO] porque as operacoes de AudioTrack
+ * (especialmente write em modo bloqueante) nao podem travar a main thread.
  */
 @Singleton
 class PlaybackCoordinator @Inject constructor(
@@ -36,7 +39,7 @@ class PlaybackCoordinator @Inject constructor(
 ) {
     companion object {
         private const val TAG = "PlaybackCoordinator"
-        private const val MAX_WAIT_CYCLES = 50
+        private const val MAX_WAIT_CYCLES = 75  // 15s no total
         private const val WAIT_DELAY_MS = 200L
         private const val PREFETCH_AHEAD = 3
     }
@@ -44,11 +47,12 @@ class PlaybackCoordinator @Inject constructor(
     private val _state = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var playbackJob: Job? = null
     private var segments: List<TextSegment> = emptyList()
 
     fun playParagraphs(paragraphs: List<String>, startIndex: Int = 0) {
+        Log.i(TAG, "playParagraphs: ${paragraphs.size} paragrafos, indice=$startIndex")
         stop()
 
         if (paragraphs.isEmpty()) {
@@ -57,9 +61,15 @@ class PlaybackCoordinator @Inject constructor(
         }
 
         segments = segmenter.segment(paragraphs)
-        Log.i(TAG, "${segments.size} segmentos criados a partir de ${paragraphs.size} parágrafos")
+        Log.i(TAG, "${segments.size} segmentos criados a partir de ${paragraphs.size} paragrafos")
+        if (segments.isEmpty()) {
+            _state.value = PlaybackState(error = "Nenhum segmento valido para leitura")
+            return
+        }
 
         pipeline.start(segments)
+        // Prefetch inicial dos primeiros segmentos
+        pipeline.prefetchUpTo(startIndex, PREFETCH_AHEAD)
 
         playbackJob = scope.launch {
             _state.update {
@@ -81,7 +91,22 @@ class PlaybackCoordinator @Inject constructor(
                     waitCount++
                 }
 
-                if (!isActive) return@launch
+                if (!isActive) {
+                    Log.d(TAG, "Playback cancelado durante preparacao")
+                    return@launch
+                }
+
+                if (pipeline.getAudio(startIndex) == null) {
+                    Log.w(TAG, "Timeout aguardando primeiro segmento")
+                    _state.update {
+                        it.copy(
+                            isPreparing = false,
+                            isPlaying = false,
+                            error = "Timeout ao preparar primeiro segmento"
+                        )
+                    }
+                    return@launch
+                }
 
                 _state.update { it.copy(isPreparing = false, isPlaying = true) }
 
@@ -98,10 +123,10 @@ class PlaybackCoordinator @Inject constructor(
                 }
 
                 _state.update { it.copy(isPlaying = false, currentText = "") }
-                Log.i(TAG, "Playback concluído — ${segments.size} segmentos")
+                Log.i(TAG, "Playback concluido — ${segments.size} segmentos")
 
             } catch (e: CancellationException) {
-                Log.d(TAG, "Playback cancelado pelo usuário")
+                Log.d(TAG, "Playback cancelado pelo usuario")
                 _state.update { it.copy(isPlaying = false, isPreparing = false) }
             } catch (e: Exception) {
                 Log.e(TAG, "Erro fatal no playback: ${e.message}", e)
@@ -118,11 +143,11 @@ class PlaybackCoordinator @Inject constructor(
 
     fun playFromSegment(index: Int) {
         if (segments.isEmpty()) {
-            Log.w(TAG, "Nenhum segmento carregado para tocar a partir do índice $index")
+            Log.w(TAG, "Nenhum segmento carregado para tocar a partir do indice $index")
             return
         }
         if (index < 0 || index >= segments.size) {
-            Log.w(TAG, "Índice $index fora dos limites [0, ${segments.size})")
+            Log.w(TAG, "Indice $index fora dos limites [0, ${segments.size})")
             return
         }
 
@@ -148,6 +173,17 @@ class PlaybackCoordinator @Inject constructor(
 
                 if (!isActive) return@launch
 
+                if (pipeline.getAudio(index) == null) {
+                    _state.update {
+                        it.copy(
+                            isPreparing = false,
+                            isPlaying = false,
+                            error = "Timeout ao preparar segmento $index"
+                        )
+                    }
+                    return@launch
+                }
+
                 _state.update { it.copy(isPreparing = false, isPlaying = true) }
 
                 for (i in index until segments.size) {
@@ -163,7 +199,7 @@ class PlaybackCoordinator @Inject constructor(
                 }
 
                 _state.update { it.copy(isPlaying = false, currentText = "") }
-                Log.i(TAG, "Playback a partir do segmento $index concluído")
+                Log.i(TAG, "Playback a partir do segmento $index concluido")
 
             } catch (e: CancellationException) {
                 Log.d(TAG, "Playback cancelado")
@@ -182,9 +218,11 @@ class PlaybackCoordinator @Inject constructor(
     }
 
     private suspend fun playSegment(index: Int) {
+        Log.d(TAG, "playSegment($index)")
         val cached = pipeline.awaitAudio(index, timeoutMs = WAIT_DELAY_MS * MAX_WAIT_CYCLES)
 
         if (cached != null && cached.samples.isNotEmpty()) {
+            Log.d(TAG, "Tocando segmento $index do cache (${cached.samples.size} samples)")
             val result = synthesizer.playSamples(cached.samples, cached.sampleRate)
             result.onFailure { e ->
                 Log.e(TAG, "Erro ao tocar segmento $index do cache: ${e.message}")
@@ -192,6 +230,7 @@ class PlaybackCoordinator @Inject constructor(
             }
         } else {
             val segment = segments.getOrNull(index) ?: return
+            Log.d(TAG, "Tocando segmento $index por geracao direta")
             val result = synthesizer.speak(segment.text, onComplete = null)
             result.onFailure { e ->
                 Log.e(TAG, "Erro no segmento $index: ${e.message}")

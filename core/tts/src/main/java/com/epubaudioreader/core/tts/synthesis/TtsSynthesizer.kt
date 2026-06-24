@@ -9,6 +9,8 @@ import com.epubaudioreader.core.common.result.Result
 import com.epubaudioreader.core.tts.engine.TtsEngine
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,6 +25,19 @@ class TtsSynthesizer @Inject constructor(
     private var track: AudioTrack? = null
     private var stopped: Boolean = true
     private val lock = Object()
+
+    /**
+     * Mutex que serializa chamadas ao motor Sherpa-ONNX.
+     *
+     * OfflineTts nao e thread-safe: gerar varios segmentos em paralelo
+     * (como o pipeline faz no prefetch) corrompe o estado nativo e pode
+     * travar ou retornar audio vazio. Apenas uma geracao por vez.
+     *
+     * Operacoes de AudioTrack (playSamples/stop/etc.) continuam usando
+     * [lock] e podem rodar concorrentemente com sintese para memoria,
+     * permitindo prefetch enquanto o segmento atual toca.
+     */
+    private val generationMutex = Mutex()
 
     val isPlaying: Boolean
         get() = synchronized(lock) { !stopped }
@@ -55,17 +70,25 @@ class TtsSynthesizer @Inject constructor(
             .build()
 
         synchronized(lock) {
+            track?.let { old ->
+                Log.d(TAG, "Liberando AudioTrack anterior")
+                try { old.stop() } catch (_: Exception) {}
+                try { old.release() } catch (_: Exception) {}
+            }
             track = AudioTrack(
                 attr, format, bufLength,
                 AudioTrack.MODE_STREAM,
                 AudioManager.AUDIO_SESSION_ID_GENERATE
             )
+            Log.i(TAG, "AudioTrack criado (state=${track?.state})")
         }
     }
 
     fun startPlayback() {
         synchronized(lock) {
-            track?.play()
+            val t = track ?: throw IllegalStateException("AudioTrack nao inicializado")
+            Log.d(TAG, "AudioTrack.play() (state=${t.state}, playState=${t.playState})")
+            t.play()
         }
     }
 
@@ -75,7 +98,10 @@ class TtsSynthesizer @Inject constructor(
      */
     fun playSamples(samples: FloatArray, sampleRate: Int): kotlin.Result<Unit> {
         return try {
-            if (samples.isEmpty()) return kotlin.Result.success(Unit)
+            if (samples.isEmpty()) {
+                Log.w(TAG, "playSamples recebeu samples vazio")
+                return kotlin.Result.success(Unit)
+            }
 
             val bufLength = AudioTrack.getMinBufferSize(
                 sampleRate,
@@ -89,12 +115,18 @@ class TtsSynthesizer @Inject constructor(
             }
 
             synchronized(lock) {
-                track?.pause()
-                track?.flush()
+                // Se o sampleRate mudou ou o track esta parado/liberado, recria.
+                // AudioTrack em MODE_STREAM nao permite transicoes arbitrarias
+                // STOPPED -> PAUSE; recriar e o mais seguro.
+                val needsRecreate = track?.sampleRate != sampleRate ||
+                        track?.state == AudioTrack.STATE_UNINITIALIZED ||
+                        track?.playState == AudioTrack.PLAYSTATE_STOPPED
 
-                // Recriar AudioTrack se sampleRate mudou
-                if (track?.sampleRate != sampleRate) {
+                if (needsRecreate) {
+                    Log.d(TAG, "Recriando AudioTrack sampleRate=$sampleRate")
+                    try { track?.stop() } catch (_: Exception) {}
                     try { track?.release() } catch (_: Exception) {}
+
                     val attr = AudioAttributes.Builder()
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -111,10 +143,21 @@ class TtsSynthesizer @Inject constructor(
                     )
                 }
 
-                track?.play()
+                val t = track ?: return kotlin.Result.failure(
+                    IllegalStateException("AudioTrack nulo apos inicializacao")
+                )
+
+                Log.d(TAG, "playSamples: ${samples.size} samples, sampleRate=$sampleRate, playState=${t.playState}")
+                t.flush()
+                t.play()
                 stopped = false
-                track?.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-                track?.stop()
+                val written = t.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                Log.d(TAG, "playSamples: escritos $written floats")
+                if (written < 0) {
+                    throw IllegalStateException("AudioTrack.write retornou erro $written")
+                }
+                // NAO chamar stop() aqui: o AudioTrack continua tocando o buffer.
+                // O PlaybackCoordinator chama stop() quando o usuario pausa.
             }
             kotlin.Result.success(Unit)
         } catch (e: Exception) {
@@ -135,10 +178,22 @@ class TtsSynthesizer @Inject constructor(
         return try {
             synchronized(lock) {
                 if (!stopped) {
-                    track?.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-                    1
+                    val t = track
+                    if (t != null) {
+                        val written = t.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                        if (written < 0) {
+                            Log.e(TAG, "AudioTrack.write erro no callback: $written")
+                            stopped = true
+                            0
+                        } else {
+                            1
+                        }
+                    } else {
+                        Log.e(TAG, "AudioTrack nulo no callback JNI")
+                        stopped = true
+                        0
+                    }
                 } else {
-                    track?.stop()
                     0
                 }
             }
@@ -149,28 +204,35 @@ class TtsSynthesizer @Inject constructor(
         }
     }
 
-    fun speak(text: String, sid: Int = 0, speed: Float = 1.0f, onComplete: (() -> Unit)? = null): kotlin.Result<Unit> {
+    suspend fun speak(text: String, sid: Int = 0, speed: Float = 1.0f, onComplete: (() -> Unit)? = null): kotlin.Result<Unit> {
         return try {
-            val tts = ttsEngine.getTts() ?: return kotlin.Result.failure(IllegalStateException("TTS nao inicializado"))
             if (text.isBlank()) return kotlin.Result.success(Unit)
 
-            // Resetar AudioTrack entre geracoes (como no oficial)
-            synchronized(lock) {
-                track?.pause()
-                track?.flush()
-                track?.play()
-                stopped = false
+            val tts = ttsEngine.getTts()
+                ?: return kotlin.Result.failure(IllegalStateException("TTS nao inicializado"))
+
+            // Serializa geracao para evitar corrupcao do motor nativo.
+            generationMutex.withLock {
+                Log.d(TAG, "speak: '${text.take(60)}...'")
+
+                // Resetar AudioTrack entre geracoes
+                synchronized(lock) {
+                    track?.flush()
+                    track?.play()
+                    stopped = false
+                }
+
+                // Gerar com callback (thread de background)
+                val genConfig = GenerationConfig(sid = sid, speed = speed)
+                tts.generateWithConfigAndCallback(
+                    text = text,
+                    config = genConfig,
+                    callback = this::callback
+                )
+
+                Log.d(TAG, "speak: geracao concluida")
+                onComplete?.invoke()
             }
-
-            // Gerar com callback (thread de background)
-            val genConfig = GenerationConfig(sid = sid, speed = speed)
-            tts.generateWithConfigAndCallback(
-                text = text,
-                config = genConfig,
-                callback = this::callback
-            )
-
-            onComplete?.invoke()
             kotlin.Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Erro em speak: ${e.message}", e)
@@ -179,10 +241,10 @@ class TtsSynthesizer @Inject constructor(
     }
 
     /**
-     * Sintetiza o texto para memória, retornando os samples PCM float.
-     * Útil para prefetch no pipeline de síntese.
+     * Sintetiza o texto para memoria, retornando os samples PCM float.
+     * Util para prefetch no pipeline de sintese.
      */
-    fun synthesizeToMemory(
+    suspend fun synthesizeToMemory(
         text: String,
         sid: Int = 0,
         speed: Float = 1.0f
@@ -194,25 +256,33 @@ class TtsSynthesizer @Inject constructor(
                 return Result.Success(SynthesizedAudio(FloatArray(0), tts.sampleRate()))
             }
 
-            val samples = mutableListOf<Float>()
-            val memoryCallback: (FloatArray) -> Int = { chunk ->
-                try {
-                    samples.addAll(chunk.toList())
-                    1
-                } catch (e: Exception) {
-                    Log.e(TAG, "Erro acumulando samples: ${e.message}", e)
-                    0
+            // Serializa geracao para evitar corrupcao do motor nativo.
+            generationMutex.withLock {
+                Log.d(TAG, "synthesizeToMemory: '${text.take(60)}...'")
+                val samples = mutableListOf<Float>()
+                val memoryCallback: (FloatArray) -> Int = { chunk ->
+                    try {
+                        if (chunk.isNotEmpty()) {
+                            samples.addAll(chunk.toList())
+                        }
+                        1
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Erro acumulando samples: ${e.message}", e)
+                        0
+                    }
                 }
+
+                val genConfig = GenerationConfig(sid = sid, speed = speed)
+                tts.generateWithConfigAndCallback(
+                    text = text,
+                    config = genConfig,
+                    callback = memoryCallback
+                )
+
+                val result = SynthesizedAudio(samples.toFloatArray(), tts.sampleRate())
+                Log.d(TAG, "synthesizeToMemory: ${result.samples.size} samples, sr=${result.sampleRate}")
+                Result.Success(result)
             }
-
-            val genConfig = GenerationConfig(sid = sid, speed = speed)
-            tts.generateWithConfigAndCallback(
-                text = text,
-                config = genConfig,
-                callback = memoryCallback
-            )
-
-            Result.Success(SynthesizedAudio(samples.toFloatArray(), tts.sampleRate()))
         } catch (e: Exception) {
             Log.e(TAG, "Erro em synthesizeToMemory: ${e.message}", e)
             Result.Error(e)
@@ -222,6 +292,9 @@ class TtsSynthesizer @Inject constructor(
     fun stop() {
         synchronized(lock) {
             stopped = true
+            Log.d(TAG, "stop: parando AudioTrack")
+            try { track?.pause() } catch (_: Exception) {}
+            try { track?.flush() } catch (_: Exception) {}
             try { track?.stop() } catch (_: Exception) {}
         }
     }
@@ -229,6 +302,7 @@ class TtsSynthesizer @Inject constructor(
     fun release() {
         synchronized(lock) {
             stopped = true
+            Log.d(TAG, "release: liberando AudioTrack")
             try { track?.stop() } catch (_: Exception) {}
             try { track?.release() } catch (_: Exception) {}
             track = null
