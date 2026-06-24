@@ -6,6 +6,7 @@ import com.epubaudioreader.core.data.epub.model.ParsedEpub
 import com.epubaudioreader.core.data.epub.model.ParsedOpf
 import com.epubaudioreader.core.data.epub.model.TocEntry
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.util.zip.ZipFile
 import javax.inject.Inject
@@ -15,6 +16,7 @@ import javax.inject.Inject
  * Opens ZipFile only once (BUG-EPUB-004) and passes reference to sub-parsers.
  * Includes proper error logging (BUG-EPUB-008).
  * Maps TOC entries to correct spine indices (BUG-EPUB-003).
+ * Adds timeout protection to prevent hanging on malformed EPUBs (BUG-EPUB-015).
  */
 class EpubParserImpl @Inject constructor(
     private val containerParser: ContainerParser,
@@ -29,29 +31,32 @@ class EpubParserImpl @Inject constructor(
     }
 
     override suspend fun parse(file: File): ParsedEpub = withContext(dispatcher.io) {
-        // BUG-EPUB-004: Open ZipFile only once in the main method
-        ZipFile(file).use { zip ->
-            val opfPath = containerParser.parse(zip)
-            val opfDir = opfPath.substringBeforeLast('/', "")
-            val parsedOpf = opfParser.parse(zip, opfPath)
+        // BUG-EPUB-015: Add timeout to prevent hanging on malformed EPUBs
+        withTimeout(XmlParserUtils.EPUB_PARSE_TIMEOUT_MS) {
+            // BUG-EPUB-004: Open ZipFile only once in the main method
+            ZipFile(file).use { zip ->
+                val opfPath = containerParser.parse(zip)
+                val opfDir = opfPath.substringBeforeLast('/', "")
+                val parsedOpf = opfParser.parse(zip, opfPath)
 
-            // BUG-EPUB-003: Build href -> spineIndex map for correct TOC alignment
-            val hrefToSpineIndex = buildHrefToSpineIndex(parsedOpf)
+                // BUG-EPUB-003: Build href -> spineIndex map for correct TOC alignment
+                val hrefToSpineIndex = buildHrefToSpineIndex(parsedOpf)
 
-            val toc = parseToc(zip, parsedOpf, opfDir, hrefToSpineIndex)
+                val toc = parseToc(zip, parsedOpf, opfDir, hrefToSpineIndex)
 
-            Log.i(TAG, "Parsed EPUB: title='${parsedOpf.metadata.title}', " +
-                    "spine=${parsedOpf.spine.size}, chapters=${parsedOpf.spine.count { it.linear }}, " +
-                    "manifest=${parsedOpf.manifest.size}, toc=${toc.size}")
+                Log.i(TAG, "Parsed EPUB: title='${parsedOpf.metadata.title}', " +
+                        "spine=${parsedOpf.spine.size}, chapters=${parsedOpf.spine.count { it.linear }}, " +
+                        "manifest=${parsedOpf.manifest.size}, toc=${toc.size}")
 
-            ParsedEpub(
-                metadata = parsedOpf.metadata,
-                manifest = parsedOpf.manifest,
-                spine = parsedOpf.spine,
-                toc = toc,
-                opfDir = opfDir,
-                bookFile = file
-            )
+                ParsedEpub(
+                    metadata = parsedOpf.metadata,
+                    manifest = parsedOpf.manifest,
+                    spine = parsedOpf.spine,
+                    toc = toc,
+                    opfDir = opfDir,
+                    bookFile = file
+                )
+            }
         }
     }
 
