@@ -9,7 +9,9 @@ import androidx.room.PrimaryKey
     tableName = "books",
     indices = [
         Index(value = ["title"]),
-        Index(value = ["lastReadDate"])
+        Index(value = ["lastReadDate"]),
+        Index(value = ["hash"], unique = true),
+        Index(value = ["filePath"])
     ]
 )
 data class BookEntity(

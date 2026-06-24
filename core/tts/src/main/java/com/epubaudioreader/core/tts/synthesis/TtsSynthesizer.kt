@@ -8,7 +8,6 @@ import android.util.Log
 import com.epubaudioreader.core.common.result.Result
 import com.epubaudioreader.core.tts.engine.TtsEngine
 import com.k2fsa.sherpa.onnx.GenerationConfig
-import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
@@ -23,6 +22,7 @@ class TtsSynthesizer @Inject constructor(
     }
 
     private var track: AudioTrack? = null
+    @Volatile
     private var stopped: Boolean = true
     private val lock = Object()
 
@@ -95,6 +95,8 @@ class TtsSynthesizer @Inject constructor(
     /**
      * Toca samples PCM float previamente sintetizados no AudioTrack.
      * Usado pelo PlaybackCoordinator quando o pipeline ja tem o audio em cache.
+     *
+     * Aguarda o audio terminar de tocar antes de retornar (BUG-001 fix).
      */
     fun playSamples(samples: FloatArray, sampleRate: Int): kotlin.Result<Unit> {
         return try {
@@ -148,7 +150,7 @@ class TtsSynthesizer @Inject constructor(
                 )
 
                 Log.d(TAG, "playSamples: ${samples.size} samples, sampleRate=$sampleRate, playState=${t.playState}")
-                t.flush()
+                // BUG-003: Removido flush() que cortava audio pendente
                 t.play()
                 stopped = false
                 val written = t.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
@@ -156,8 +158,12 @@ class TtsSynthesizer @Inject constructor(
                 if (written < 0) {
                     throw IllegalStateException("AudioTrack.write retornou erro $written")
                 }
-                // NAO chamar stop() aqui: o AudioTrack continua tocando o buffer.
-                // O PlaybackCoordinator chama stop() quando o usuario pausa.
+
+                // BUG-001: Aguardar o audio terminar de tocar antes de retornar
+                val durationMs = (samples.size / sampleRate.toFloat() * 1000).toLong()
+                Log.d(TAG, "playSamples: aguardando ${durationMs}ms para audio terminar")
+                Thread.sleep(durationMs)
+                Log.d(TAG, "playSamples: audio concluido")
             }
             kotlin.Result.success(Unit)
         } catch (e: Exception) {
@@ -204,6 +210,11 @@ class TtsSynthesizer @Inject constructor(
         }
     }
 
+    /**
+     * Sintetiza e reproduz o texto via AudioTrack com callback.
+     *
+     * Aguarda o playback completar antes de retornar (BUG-002 fix).
+     */
     suspend fun speak(text: String, sid: Int = 0, speed: Float = 1.0f, onComplete: (() -> Unit)? = null): kotlin.Result<Unit> {
         return try {
             if (text.isBlank()) return kotlin.Result.success(Unit)
@@ -222,15 +233,32 @@ class TtsSynthesizer @Inject constructor(
                     stopped = false
                 }
 
+                // Contador de samples para calcular duracao do playback (BUG-002)
+                var totalSamplesWritten = 0
+
                 // Gerar com callback (thread de background)
                 val genConfig = GenerationConfig(sid = sid, speed = speed)
                 tts.generateWithConfigAndCallback(
                     text = text,
                     config = genConfig,
-                    callback = this::callback
+                    callback = { samples ->
+                        val result = callback(samples)
+                        if (result == 1) {
+                            totalSamplesWritten += samples.size
+                        }
+                        result
+                    }
                 )
 
-                Log.d(TAG, "speak: geracao concluida")
+                // BUG-002: Aguardar o audio terminar de tocar antes de retornar
+                if (totalSamplesWritten > 0 && !stopped) {
+                    val sr = tts.sampleRate()
+                    val durationMs = (totalSamplesWritten / sr.toFloat() * 1000).toLong()
+                    Log.d(TAG, "speak: aguardando ${durationMs}ms para playback terminar")
+                    Thread.sleep(durationMs)
+                }
+
+                Log.d(TAG, "speak: geracao e playback concluidos")
                 onComplete?.invoke()
             }
             kotlin.Result.success(Unit)
@@ -243,6 +271,8 @@ class TtsSynthesizer @Inject constructor(
     /**
      * Sintetiza o texto para memoria, retornando os samples PCM float.
      * Util para prefetch no pipeline de sintese.
+     *
+     * Usa FloatArray diretamente para evitar OOM com boxing (BUG-010 fix).
      */
     suspend fun synthesizeToMemory(
         text: String,
@@ -259,11 +289,22 @@ class TtsSynthesizer @Inject constructor(
             // Serializa geracao para evitar corrupcao do motor nativo.
             generationMutex.withLock {
                 Log.d(TAG, "synthesizeToMemory: '${text.take(60)}...'")
-                val samples = mutableListOf<Float>()
+
+                // BUG-010: Usar FloatArray em vez de MutableList<Float> para evitar OOM
+                var samples = FloatArray(0)
+                var totalSize = 0
+
                 val memoryCallback: (FloatArray) -> Int = { chunk ->
                     try {
                         if (chunk.isNotEmpty()) {
-                            samples.addAll(chunk.toList())
+                            val newSize = totalSize + chunk.size
+                            if (newSize > samples.size) {
+                                // Realocar com margem de crescimento (1.5x + margem minima)
+                                val newCapacity = (newSize * 1.5).toInt().coerceAtLeast(newSize + 4096)
+                                samples = samples.copyOf(newCapacity)
+                            }
+                            chunk.copyInto(samples, destinationOffset = totalSize)
+                            totalSize += chunk.size
                         }
                         1
                     } catch (e: Exception) {
@@ -279,7 +320,9 @@ class TtsSynthesizer @Inject constructor(
                     callback = memoryCallback
                 )
 
-                val result = SynthesizedAudio(samples.toFloatArray(), tts.sampleRate())
+                // Truncar array para o tamanho exato
+                val finalSamples = if (totalSize < samples.size) samples.copyOf(totalSize) else samples
+                val result = SynthesizedAudio(finalSamples, tts.sampleRate())
                 Log.d(TAG, "synthesizeToMemory: ${result.samples.size} samples, sr=${result.sampleRate}")
                 Result.Success(result)
             }

@@ -20,6 +20,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -27,6 +30,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -51,6 +55,7 @@ fun LibraryScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
 
     val pickDocumentLauncher = rememberLauncherForActivityResult(
@@ -59,16 +64,23 @@ fun LibraryScreen(
         uri?.let { viewModel.importBook(it) }
     }
 
+    // Observa erros e exibe Snackbar antes de limpar (BUG-UI-001)
     LaunchedEffect(uiState.error) {
-        if (uiState.error != null) {
+        uiState.error?.let { error ->
+            snackbarHostState.showSnackbar(
+                message = error,
+                duration = SnackbarDuration.Long
+            )
             viewModel.clearError()
         }
     }
 
     LibraryContent(
         uiState = uiState,
+        snackbarHostState = snackbarHostState,
         onImportClick = { pickDocumentLauncher.launch(arrayOf("application/epub+zip")) },
         onBookClick = onBookClick,
+        onDeleteBook = { viewModel.confirmDelete(it) },
         onTtsTestClick = onTtsTestClick,
         onDeleteConfirm = { viewModel.executeDelete() },
         onDeleteDismiss = { viewModel.dismissDelete() },
@@ -80,8 +92,10 @@ fun LibraryScreen(
 @Composable
 internal fun LibraryContent(
     uiState: LibraryUiState,
+    snackbarHostState: SnackbarHostState,
     onImportClick: () -> Unit,
     onBookClick: (Long) -> Unit,
+    onDeleteBook: (Book) -> Unit,
     onTtsTestClick: () -> Unit,
     onDeleteConfirm: () -> Unit,
     onDeleteDismiss: () -> Unit,
@@ -91,6 +105,7 @@ internal fun LibraryContent(
 
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -113,7 +128,10 @@ internal fun LibraryContent(
             )
         },
         floatingActionButton = {
-            ImportFab(onClick = onImportClick)
+            ImportFab(
+                onClick = onImportClick,
+                isLoading = uiState.isImporting
+            )
         }
     ) { innerPadding ->
         Box(
@@ -122,7 +140,10 @@ internal fun LibraryContent(
                 .padding(innerPadding)
         ) {
             if (uiState.books.isEmpty() && !uiState.isLoading) {
-                EmptyState(message = stringResource(R.string.empty_library))
+                EmptyState(
+                    message = stringResource(R.string.empty_library),
+                    onImportClick = onImportClick
+                )
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 120.dp),
@@ -137,16 +158,15 @@ internal fun LibraryContent(
                     ) { book ->
                         BookCard(
                             book = book,
-                            onClick = { onBookClick(book.id) }
+                            onClick = { onBookClick(book.id) },
+                            onLongClick = { onDeleteBook(book) }
                         )
                     }
                 }
             }
 
-            if (uiState.importProgress is ImportProgress.Scanning ||
-                uiState.importProgress is ImportProgress.Parsing ||
-                uiState.importProgress is ImportProgress.Saving
-            ) {
+            // Loading overlay durante importacao (BUG-UI-014)
+            if (uiState.isImporting) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -182,8 +202,10 @@ private fun LibraryContentEmptyPreview() {
     MaterialTheme {
         LibraryContent(
             uiState = LibraryUiState(),
+            snackbarHostState = SnackbarHostState(),
             onImportClick = {},
             onBookClick = {},
+            onDeleteBook = {},
             onTtsTestClick = {},
             onDeleteConfirm = {},
             onDeleteDismiss = {}
@@ -220,8 +242,10 @@ private fun LibraryContentWithBooksPreview() {
                     )
                 )
             ),
+            snackbarHostState = SnackbarHostState(),
             onImportClick = {},
             onBookClick = {},
+            onDeleteBook = {},
             onTtsTestClick = {},
             onDeleteConfirm = {},
             onDeleteDismiss = {}

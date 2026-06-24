@@ -6,8 +6,8 @@ import com.epubaudioreader.core.common.result.Result
 import com.epubaudioreader.core.tts.segmentation.TextSegment
 import com.epubaudioreader.core.tts.synthesis.TtsSynthesizer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
@@ -17,7 +17,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,6 +33,10 @@ import javax.inject.Singleton
  * 3. Mantem cache LRU em memoria (max [CACHE_SIZE] segmentos)
  * 4. Faz prefetch dos proximos segmentos durante o playback
  * 5. Expoe estado observavel via [StateFlow]
+ *
+ * BUG-005: Prefetch limitado por Semaphore(2) para evitar explosao de corrotinas.
+ * BUG-008: awaitAudio usa CompletableDeferred em vez de busy-wait polling.
+ * BUG-018: Campo jobs removido (codigo morto).
  */
 @Singleton
 class AudioSynthesisPipeline @Inject constructor(
@@ -40,6 +47,7 @@ class AudioSynthesisPipeline @Inject constructor(
         private const val TAG = "AudioSynthesisPipeline"
         private const val CACHE_SIZE = 10
         private const val LOOKAHEAD = 3
+        private const val MAX_CONCURRENT_SYNTHESIS = 2
     }
 
     private val _state = MutableStateFlow(PipelineState())
@@ -56,8 +64,14 @@ class AudioSynthesisPipeline @Inject constructor(
     }
     private val cacheMutex = Mutex()
 
+    /** BUG-008: Mapa de deferreds para notificacao assincrona quando segmentos ficam prontos */
+    private val pendingDeferreds = mutableMapOf<Int, CompletableDeferred<AudioSegment?>>()
+    private val deferredsMutex = Mutex()
+
+    /** BUG-005: Semaphore que limita sinteses concorrentes */
+    private val synthesisSemaphore = Semaphore(MAX_CONCURRENT_SYNTHESIS)
+
     private var allSegments: List<TextSegment> = emptyList()
-    private var jobs: MutableList<Job> = mutableListOf()
     private val scope = CoroutineScope(dispatcher.io + SupervisorJob())
 
     fun start(segments: List<TextSegment>) {
@@ -82,35 +96,38 @@ class AudioSynthesisPipeline @Inject constructor(
 
         for (i in index until endIndex) {
             scope.launch {
-                val shouldSkip = cacheMutex.withLock {
-                    val existing = cache[i]
-                    when {
-                        existing == null -> {
-                            cache[i] = AudioSegment(
-                                segmentId = i,
-                                samples = FloatArray(0),
-                                sampleRate = 0,
-                                status = SegmentStatus.SYNTHESIZING
-                            )
-                            false
-                        }
-                        existing.status == SegmentStatus.READY -> true
-                        existing.status == SegmentStatus.SYNTHESIZING -> true
-                        else -> {
-                            cache[i] = AudioSegment(
-                                segmentId = i,
-                                samples = FloatArray(0),
-                                sampleRate = 0,
-                                status = SegmentStatus.SYNTHESIZING
-                            )
-                            false
+                // BUG-005: Limitar numero de sinteses concorrentes
+                synthesisSemaphore.withPermit {
+                    val shouldSkip = cacheMutex.withLock {
+                        val existing = cache[i]
+                        when {
+                            existing == null -> {
+                                cache[i] = AudioSegment(
+                                    segmentId = i,
+                                    samples = FloatArray(0),
+                                    sampleRate = 0,
+                                    status = SegmentStatus.SYNTHESIZING
+                                )
+                                false
+                            }
+                            existing.status == SegmentStatus.READY -> true
+                            existing.status == SegmentStatus.SYNTHESIZING -> true
+                            else -> {
+                                cache[i] = AudioSegment(
+                                    segmentId = i,
+                                    samples = FloatArray(0),
+                                    sampleRate = 0,
+                                    status = SegmentStatus.SYNTHESIZING
+                                )
+                                false
+                            }
                         }
                     }
+
+                    if (shouldSkip) return@withPermit
+
+                    synthesizeSegment(i)
                 }
-
-                if (shouldSkip) return@launch
-
-                synthesizeSegment(i)
             }
         }
     }
@@ -123,18 +140,37 @@ class AudioSynthesisPipeline @Inject constructor(
         }
     }
 
+    /**
+     * Aguarda um segmento ficar pronto para playback.
+     * BUG-008: Usa CompletableDeferred para notificacao assincrona em vez de polling.
+     */
     suspend fun awaitAudio(segmentId: Int, timeoutMs: Long = 30000): AudioSegment? {
         if (segmentId < 0 || segmentId >= allSegments.size) return null
-        val startTime = System.currentTimeMillis()
-        while (System.currentTimeMillis() - startTime < timeoutMs) {
-            cacheMutex.withLock {
-                val segment = cache[segmentId]
-                if (segment?.status == SegmentStatus.READY) return segment
-            }
-            delay(100)
+
+        // Verificar se ja esta pronto
+        cacheMutex.withLock {
+            val segment = cache[segmentId]
+            if (segment?.status == SegmentStatus.READY) return segment
         }
-        Log.w(TAG, "Timeout aguardando segmento $segmentId (${timeoutMs}ms)")
-        return null
+
+        // Criar ou obter deferred para este segmento
+        val deferred = deferredsMutex.withLock {
+            pendingDeferreds.getOrPut(segmentId) { CompletableDeferred() }
+        }
+
+        return try {
+            // Aguardar notificacao assincrona com timeout
+            val result = withTimeoutOrNull(timeoutMs) {
+                deferred.await()
+            }
+            if (result == null) {
+                Log.w(TAG, "Timeout aguardando segmento $segmentId (${timeoutMs}ms)")
+            }
+            result
+        } catch (e: CancellationException) {
+            Log.v(TAG, "awaitAudio cancelado para segmento $segmentId")
+            null
+        }
     }
 
     fun advanceTo(newIndex: Int) {
@@ -144,7 +180,6 @@ class AudioSynthesisPipeline @Inject constructor(
 
     fun cancelAll() {
         scope.coroutineContext.cancelChildren()
-        jobs.clear()
         _state.update { it.copy(isRunning = false) }
         Log.i(TAG, "Pipeline cancelado. ${cache.size} segmentos em cache.")
     }
@@ -187,6 +222,12 @@ class AudioSynthesisPipeline @Inject constructor(
                     _state.update { it.copy(readyCount = readyCount) }
 
                     Log.d(TAG, "Segmento $index pronto ($readyCount/${allSegments.size})")
+
+                    // BUG-008: Notificar deferreds pendentes que este segmento ficou pronto
+                    val deferred = deferredsMutex.withLock {
+                        pendingDeferreds.remove(index)
+                    }
+                    deferred?.complete(audio)
                 }
                 is Result.Error -> {
                     throw result.exception
@@ -203,6 +244,11 @@ class AudioSynthesisPipeline @Inject constructor(
                     )
                 }
             }
+            // BUG-008: Completar deferred com null em caso de cancelamento
+            val deferred = deferredsMutex.withLock {
+                pendingDeferreds.remove(index)
+            }
+            deferred?.complete(null)
             Log.v(TAG, "Sintese do segmento $index cancelada")
         } catch (e: Exception) {
             Log.e(TAG, "Erro ao sintetizar segmento $index: ${e.message}", e)
@@ -214,6 +260,11 @@ class AudioSynthesisPipeline @Inject constructor(
                     status = SegmentStatus.ERROR
                 )
             }
+            // BUG-008: Completar deferred com null em caso de erro
+            val deferred = deferredsMutex.withLock {
+                pendingDeferreds.remove(index)
+            }
+            deferred?.complete(null)
             _state.update { it.copy(error = "Segmento $index: ${e.message}") }
         }
     }

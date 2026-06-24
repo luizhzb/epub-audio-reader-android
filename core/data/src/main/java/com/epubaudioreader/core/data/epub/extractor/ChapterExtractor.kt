@@ -1,7 +1,9 @@
 package com.epubaudioreader.core.data.epub.extractor
 
+import android.util.Log
 import com.epubaudioreader.core.data.epub.model.ManifestItem
 import com.epubaudioreader.core.data.epub.model.ParsedEpub
+import org.jsoup.Jsoup
 import java.util.zip.ZipFile
 import javax.inject.Inject
 
@@ -9,23 +11,48 @@ import javax.inject.Inject
  * For each item in the spine, resolves the href via manifest,
  * reads the XHTML from the ZIP, extracts text via TextExtractor,
  * and returns the clean text along with metadata.
+ *
+ * BUG-EPUB-003: Uses href-based TOC lookup instead of spineIndex.
+ * BUG-EPUB-011: Validates mediaType before extracting text.
+ * BUG-EPUB-013: Uses Jsoup for robust title extraction instead of regex.
+ * BUG-EPUB-014: Normalizes relative paths.
+ * BUG-EPUB-004: Accepts optional ZipFile to avoid re-opening.
+ * BUG-EPUB-008: Logs errors instead of silently swallowing.
  */
 class ChapterExtractor @Inject constructor(
     private val textExtractor: TextExtractor
 ) {
 
+    companion object {
+        private const val TAG = "ChapterExtractor"
+        private val SUPPORTED_MEDIA_TYPES = setOf(
+            "application/xhtml+xml",
+            "text/html",
+            "application/xml",
+            "text/xml"
+        )
+    }
+
     /**
      * Extracts chapters from the parsed EPUB.
      * Returns list of tuples: (title, text, href, spineIndex)
+     *
+     * @param parsedEpub The parsed EPUB
+     * @param bookId The book ID for logging
+     * @param zipFile Optional pre-opened ZipFile to avoid re-opening (BUG-EPUB-004)
      */
-    fun extractChapters(parsedEpub: ParsedEpub, bookId: Long): List<ChapterData> {
+    fun extractChapters(
+        parsedEpub: ParsedEpub,
+        bookId: Long,
+        zipFile: ZipFile? = null
+    ): List<ChapterData> {
         val chapters = mutableListOf<ChapterData>()
-        val tocMap = buildTocMap(parsedEpub)
+        // BUG-EPUB-003: Build TOC map by href instead of spineIndex
+        val tocMap = buildTocMapByHref(parsedEpub)
 
-        ZipFile(parsedEpub.bookFile).use { zip ->
+        val processZip: (ZipFile) -> Unit = { zip ->
             for ((spineIndex, spineItem) in parsedEpub.spine.withIndex()) {
                 if (!spineItem.linear) {
-                    // Skip non-linear spine items but still count index
                     continue
                 }
 
@@ -33,9 +60,25 @@ class ChapterExtractor @Inject constructor(
                 if (manifestItem == null) {
                     chapters.add(
                         ChapterData(
-                            title = tocMap[spineIndex]?.title ?: "Capítulo ${chapters.size + 1}",
+                            title = tocMap.entries.find { it.value.spineIndex == spineIndex }?.value?.title
+                                ?: "Cap\u00edtulo ${chapters.size + 1}",
                             text = "",
                             href = "",
+                            spineIndex = spineIndex
+                        )
+                    )
+                    continue
+                }
+
+                // BUG-EPUB-011: Validate mediaType before extracting
+                if (!isSupportedMediaType(manifestItem.mediaType)) {
+                    Log.d(TAG, "Skipping unsupported mediaType '${manifestItem.mediaType}' for ${manifestItem.href}")
+                    chapters.add(
+                        ChapterData(
+                            title = tocMap[manifestItem.href]?.title
+                                ?: "Cap\u00edtulo ${chapters.size + 1}",
+                            text = "",
+                            href = manifestItem.href,
                             spineIndex = spineIndex
                         )
                     )
@@ -45,7 +88,9 @@ class ChapterExtractor @Inject constructor(
                 val contentPath = resolvePath(parsedEpub.opfDir, manifestItem.href)
                 val xhtmlContent = try {
                     readZipEntry(zip, contentPath)
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    // BUG-EPUB-008: Log errors
+                    Log.e(TAG, "Failed to read $contentPath for book $bookId", e)
                     ""
                 }
 
@@ -55,9 +100,11 @@ class ChapterExtractor @Inject constructor(
                     ""
                 }
 
-                val tocEntry = tocMap[spineIndex]
-                val title = tocEntry?.title ?: extractTitleFromHtml(xhtmlContent)
-                    ?: "Capítulo ${chapters.size + 1}"
+                // BUG-EPUB-003: Look up TOC by href for correct title
+                val tocEntry = tocMap[manifestItem.href]
+                val title = tocEntry?.title
+                    ?: extractTitleFromHtml(xhtmlContent)
+                    ?: "Cap\u00edtulo ${chapters.size + 1}"
 
                 chapters.add(
                     ChapterData(
@@ -70,30 +117,69 @@ class ChapterExtractor @Inject constructor(
             }
         }
 
+        if (zipFile != null) {
+            // BUG-EPUB-004: Use provided ZipFile
+            processZip(zipFile)
+        } else {
+            ZipFile(parsedEpub.bookFile).use { zip ->
+                processZip(zip)
+            }
+        }
+
+        Log.i(TAG, "Extracted ${chapters.size} chapters for book $bookId")
         return chapters
     }
 
-    private fun buildTocMap(parsedEpub: ParsedEpub): Map<Int, com.epubaudioreader.core.data.epub.model.TocEntry> {
-        val map = mutableMapOf<Int, com.epubaudioreader.core.data.epub.model.TocEntry>()
+    /**
+     * Builds TOC map keyed by href (without fragment) for reliable lookup. (BUG-EPUB-003)
+     */
+    private fun buildTocMapByHref(parsedEpub: ParsedEpub): Map<String, com.epubaudioreader.core.data.epub.model.TocEntry> {
+        val map = mutableMapOf<String, com.epubaudioreader.core.data.epub.model.TocEntry>()
         for (entry in parsedEpub.toc) {
-            val spineIndex = entry.spineIndex
-            if (!map.containsKey(spineIndex)) {
-                map[spineIndex] = entry
+            val hrefKey = entry.href.substringBefore("#")
+            if (!map.containsKey(hrefKey)) {
+                map[hrefKey] = entry
             }
         }
         return map
     }
 
-    private fun extractTitleFromHtml(xhtml: String): String? {
-        // Try to find <title> or first <h1>
-        val titleRegex = Regex("<title[^>]*>(.*?)</title>", RegexOption.IGNORE_CASE)
-        val h1Regex = Regex("<h1[^>]*>(.*?)</h1>", RegexOption.IGNORE_CASE)
+    /**
+     * Checks if the media type is supported for text extraction. (BUG-EPUB-011)
+     */
+    private fun isSupportedMediaType(mediaType: String): Boolean {
+        return mediaType in SUPPORTED_MEDIA_TYPES ||
+                mediaType.startsWith("text/") ||
+                mediaType.contains("html") ||
+                mediaType.contains("xhtml")
+    }
 
-        return titleRegex.find(xhtml)?.groupValues?.get(1)?.trim()?.ifBlank { null }
-            ?: h1Regex.find(xhtml)?.groupValues?.get(1)?.let {
-                // Strip inner HTML tags
-                it.replace(Regex("<[^>]+>"), "").trim().ifBlank { null }
+    /**
+     * Extracts title using Jsoup for robust parsing. (BUG-EPUB-013)
+     */
+    private fun extractTitleFromHtml(xhtml: String): String? {
+        if (xhtml.isBlank()) return null
+        return try {
+            val document = Jsoup.parse(xhtml)
+            // Try <title> first
+            val title = document.selectFirst("title")?.text()?.trim()
+            if (!title.isNullOrBlank()) return title
+
+            // Then try <h1>
+            val h1 = document.selectFirst("h1")?.text()?.trim()
+            if (!h1.isNullOrBlank()) return h1
+
+            // Then try any heading
+            for (level in 2..6) {
+                val heading = document.selectFirst("h$level")?.text()?.trim()
+                if (!heading.isNullOrBlank()) return heading
             }
+
+            null
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract title from HTML", e)
+            null
+        }
     }
 
     private fun readZipEntry(zip: ZipFile, path: String): String {
@@ -104,8 +190,27 @@ class ChapterExtractor @Inject constructor(
         }
     }
 
+    /**
+     * Resolves and normalizes paths. BUG-EPUB-014: Handles ../ and ./ segments.
+     */
     private fun resolvePath(opfDir: String, href: String): String {
-        return if (opfDir.isEmpty()) href else "$opfDir/$href"
+        return normalizePath(if (opfDir.isEmpty()) href else "$opfDir/$href")
+    }
+
+    /**
+     * Normalizes a path by resolving . and .. segments. (BUG-EPUB-014)
+     */
+    private fun normalizePath(path: String): String {
+        val parts = path.split("/")
+        val result = mutableListOf<String>()
+        for (part in parts) {
+            when {
+                part == "." || part.isEmpty() -> continue
+                part == ".." -> if (result.isNotEmpty()) result.removeAt(result.lastIndex)
+                else -> result.add(part)
+            }
+        }
+        return result.joinToString("/")
     }
 
     data class ChapterData(

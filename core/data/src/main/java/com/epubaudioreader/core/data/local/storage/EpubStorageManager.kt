@@ -59,8 +59,17 @@ class EpubStorageManager @Inject constructor(
         chapterFile.absolutePath
     }
 
+    /**
+     * Reads chapter text from filesystem.
+     * Returns empty string if file not found or read error occurs.
+     */
     suspend fun readChapterText(chapterFilePath: String): String = withContext(dispatcher.io) {
-        File(chapterFilePath).readText(Charsets.UTF_8)
+        try {
+            File(chapterFilePath).readText(Charsets.UTF_8)
+        } catch (e: Exception) {
+            android.util.Log.e("EpubStorageManager", "Error reading chapter file: $chapterFilePath", e)
+            ""
+        }
     }
 
     suspend fun deleteBookFiles(bookId: Long) = withContext(dispatcher.io) {

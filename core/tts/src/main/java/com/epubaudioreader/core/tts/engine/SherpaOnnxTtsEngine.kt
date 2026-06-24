@@ -7,7 +7,6 @@ import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.getOfflineTtsConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
-import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,6 +22,8 @@ class SherpaOnnxTtsEngine @Inject constructor(
         private const val DATA_DIR = "vits-piper-pt_BR-faber-medium/espeak-ng-data"
     }
 
+    /** BUG-014: Flag volatile para visibilidade entre threads */
+    @Volatile
     private var tts: OfflineTts? = null
 
     override val isInitialized: Boolean
@@ -35,7 +36,8 @@ class SherpaOnnxTtsEngine @Inject constructor(
         return try {
             Log.i(TAG, "Inicializando TTS com modelo dos assets...")
 
-            val dataDir = copyDataDir(assetManager)
+            // BUG-011: Usa caminho direto - copia e feita unicamente pelo ModelAssetLoader
+            val dataDir = resolveDataDirPath()
 
             val config = getOfflineTtsConfig(
                 modelDir = MODEL_DIR,
@@ -69,47 +71,22 @@ class SherpaOnnxTtsEngine @Inject constructor(
         tts = null
     }
 
-    private fun copyDataDir(assetManager: AssetManager): String {
-        return try {
-            val externalDir = context.getExternalFilesDir(null) ?: context.filesDir
-            val dataDirFile = File(externalDir, DATA_DIR)
+    /**
+     * BUG-011: Apenas constroi o caminho do data dir.
+     * A copia dos assets e responsabilidade unica do ModelAssetLoader,
+     * evitando duplicacao de trabalho e inconsistencias.
+     */
+    private fun resolveDataDirPath(): String {
+        val externalDir = context.getExternalFilesDir(null) ?: context.filesDir
+        val dataDirFile = File(externalDir, DATA_DIR)
 
-            if (dataDirFile.exists() && dataDirFile.list()?.isNotEmpty() == true) {
-                Log.i(TAG, "espeak-ng-data ja copiado")
-                return "$externalDir/$DATA_DIR"
-            }
-
-            Log.i(TAG, "Copiando espeak-ng-data...")
-            copyAssetsRecursively(assetManager, DATA_DIR, externalDir.absolutePath)
-            Log.i(TAG, "espeak-ng-data copiado")
-            "$externalDir/$DATA_DIR"
-        } catch (e: Exception) {
-            Log.w(TAG, "Falha ao copiar espeak-ng-data: ${e.message}")
-            ""
-        }
-    }
-
-    private fun copyAssetsRecursively(assetManager: AssetManager, path: String, destRoot: String) {
-        val assets = assetManager.list(path) ?: return
-        if (assets.isEmpty()) {
-            try {
-                val destFile = File(destRoot, path)
-                destFile.parentFile?.mkdirs()
-                assetManager.open(path).use { input ->
-                    FileOutputStream(destFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Falha ao copiar $path: ${e.message}")
-            }
+        if (dataDirFile.exists() && dataDirFile.list()?.isNotEmpty() == true) {
+            Log.i(TAG, "espeak-ng-data encontrado em: $externalDir/$DATA_DIR")
         } else {
-            val destDir = File(destRoot, path)
-            destDir.mkdirs()
-            for (asset in assets) {
-                val childPath = if (path.isEmpty()) asset else "$path/$asset"
-                copyAssetsRecursively(assetManager, childPath, destRoot)
-            }
+            Log.w(TAG, "espeak-ng-data nao encontrado em $externalDir/$DATA_DIR. " +
+                "Certifique-se de que ModelAssetLoader.prepareModel() foi chamado primeiro.")
         }
+
+        return "$externalDir/$DATA_DIR"
     }
 }

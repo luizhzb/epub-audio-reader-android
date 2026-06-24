@@ -37,8 +37,7 @@ class ModelAssetLoader @Inject constructor(
     private val _state = MutableStateFlow<ModelLoadState>(ModelLoadState.NotLoaded)
     val state: StateFlow<ModelLoadState> = _state.asStateFlow()
 
-    val modelDir: File
-        get() = File(context.filesDir, "tts_model")
+    // BUG-019: Property modelDir removida (codigo morto - nunca era utilizada)
 
     suspend fun prepareModel(): Boolean = withContext(dispatcher.io) {
         try {
@@ -60,6 +59,7 @@ class ModelAssetLoader @Inject constructor(
             Log.i(TAG, "Modelo encontrado: ${modelAssets.toList()}")
 
             // Copiar espeak-ng-data para external files (requerido pelo JNI)
+            // BUG-011: Esta e a UNICA responsavel pela copia de espeak-ng-data
             copyEspeakDataIfNeeded(assetManager)
 
             // Inicializar TTS com AssetManager
