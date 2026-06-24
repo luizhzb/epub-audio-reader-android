@@ -116,7 +116,7 @@ class BookRepositoryImpl @Inject constructor(
                     description = parsedEpub.metadata.description,
                     filePath = filePath,
                     totalChapters = parsedEpub.spine.size,
-                    totalChars = 0,
+                    totalChars = 0L,
                     fileSize = fileSize,
                     hash = hash
                 )
@@ -151,7 +151,7 @@ class BookRepositoryImpl @Inject constructor(
 
                 for ((index, chapterData) in chapterDataList.withIndex()) {
                     val charCount = chapterData.text.length
-                    totalChars += charCount
+                    totalChars += charCount.toLong()
 
                     // Save chapter text to filesystem (I/O outside transaction)
                     val path = storageManager.saveChapterText(
