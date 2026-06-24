@@ -16,13 +16,27 @@ android {
         versionCode = 1
         versionName = "1.0.0"
     }
+
+    // Signing config using debug keystore for release (allows installation on real devices)
+    signingConfigs {
+        create("release") {
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            // Use debug signing for now so the APK can be installed
+            signingConfig = signingConfigs.getByName("release")
+            // Disable minification until proguard rules are properly configured
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
@@ -33,6 +47,13 @@ android {
         // Modelos ONNX e dados do TTS precisam estar descomprimidos no APK
         // para o AssetManager conseguir le-los a partir do codigo nativo.
         noCompress += listOf(".onnx", ".json", ".dict", ".pt", ".bin", ".tar.bz2")
+    }
+
+    // Support all common ABIs
+    defaultConfig {
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
     }
 }
 
