@@ -46,14 +46,23 @@ private fun BookCardPreview() {
 fun BookCard(
     book: Book,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null
 ) {
     Card(
         onClick = onClick,
         modifier = modifier,
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
-        Column {
+        Column(
+            modifier = if (onLongClick != null) {
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+            } else {
+                Modifier.fillMaxWidth()
+            }
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
