@@ -22,6 +22,7 @@ import javax.inject.Inject
  * Includes OOM protection via inSampleSize calculation (BUG-EPUB-002).
  * Normalizes relative paths (BUG-EPUB-014).
  * Detects SVG covers (BUG-EPUB-019).
+ * Accepts optional pre-opened ZipFile to avoid re-opening (BUG-EPUB-004).
  */
 class CoverExtractor @Inject constructor(
     private val storageManager: EpubStorageManager
@@ -34,9 +35,25 @@ class CoverExtractor @Inject constructor(
         private const val JPEG_QUALITY = 85
     }
 
-    suspend fun extractCover(parsedEpub: ParsedEpub, bookId: Long): String? {
-        val coverBytes = findCoverBytes(parsedEpub)
-            ?: return null
+    /**
+     * Extracts cover image from the EPUB.
+     *
+     * @param parsedEpub The parsed EPUB
+     * @param bookId The book ID for logging
+     * @param zipFile Optional pre-opened ZipFile to avoid re-opening (BUG-EPUB-004)
+     */
+    suspend fun extractCover(
+        parsedEpub: ParsedEpub,
+        bookId: Long,
+        zipFile: ZipFile? = null
+    ): String? {
+        val coverBytes = if (zipFile != null) {
+            findCoverBytes(parsedEpub, zipFile)
+        } else {
+            ZipFile(parsedEpub.bookFile).use { zip ->
+                findCoverBytes(parsedEpub, zip)
+            }
+        } ?: return null
 
         return try {
             // BUG-EPUB-002: Decode with OOM protection using inSampleSize
@@ -102,30 +119,18 @@ class CoverExtractor @Inject constructor(
         return inSampleSize
     }
 
-    private fun findCoverBytes(parsedEpub: ParsedEpub): ByteArray? {
-        ZipFile(parsedEpub.bookFile).use { zip ->
-            // Level 1: meta name="cover" -> find item by id in manifest
-            val coverItemId = findCoverMetaItemId(parsedEpub, zip)
-            if (coverItemId != null) {
-                val item = parsedEpub.manifest[coverItemId]
-                if (item != null) {
-                    val path = resolvePath(parsedEpub.opfDir, item.href)
-                    // BUG-EPUB-019: Skip SVG covers - BitmapFactory can't decode them
-                    if (item.mediaType == "image/svg+xml") {
-                        Log.w(TAG, "SVG cover detected at $path - skipping Bitmap extraction")
-                        return null
-                    }
-                    zip.getEntry(path)?.let { entry ->
-                        zip.getInputStream(entry).use { it.readBytes() }.let { return it }
-                    }
-                }
-            }
-
-            // Level 2: item with properties="cover-image"
-            val coverImageItem = parsedEpub.manifest.values.find { it.properties == "cover-image" }
-            if (coverImageItem != null) {
-                val path = resolvePath(parsedEpub.opfDir, coverImageItem.href)
-                if (coverImageItem.mediaType == "image/svg+xml") {
+    /**
+     * Finds cover bytes using an already-opened ZipFile. (BUG-EPUB-004)
+     */
+    private fun findCoverBytes(parsedEpub: ParsedEpub, zip: ZipFile): ByteArray? {
+        // Level 1: meta name="cover" -> find item by id in manifest
+        val coverItemId = findCoverMetaItemId(parsedEpub, zip)
+        if (coverItemId != null) {
+            val item = parsedEpub.manifest[coverItemId]
+            if (item != null) {
+                val path = resolvePath(parsedEpub.opfDir, item.href)
+                // BUG-EPUB-019: Skip SVG covers - BitmapFactory can't decode them
+                if (item.mediaType == "image/svg+xml") {
                     Log.w(TAG, "SVG cover detected at $path - skipping Bitmap extraction")
                     return null
                 }
@@ -133,64 +138,77 @@ class CoverExtractor @Inject constructor(
                     zip.getInputStream(entry).use { it.readBytes() }.let { return it }
                 }
             }
+        }
 
-            // Level 3: guide reference type="cover"
-            val guideCover = parsedEpub.guide.find { it.type.equals("cover", ignoreCase = true) }
-            if (guideCover != null) {
-                val path = resolvePath(parsedEpub.opfDir, guideCover.href)
-                zip.getEntry(path)?.let { entry ->
-                    val bytes = zip.getInputStream(entry).use { it.readBytes() }
-                    // Check if the guide points to an image or XHTML
-                    if (guideCover.href.endsWith(".jpg", ignoreCase = true) ||
-                        guideCover.href.endsWith(".jpeg", ignoreCase = true) ||
-                        guideCover.href.endsWith(".png", ignoreCase = true)
-                    ) {
-                        return bytes
-                    }
-                    // If XHTML, try to extract first image from it
-                    if (guideCover.href.endsWith(".xhtml", ignoreCase = true) ||
-                        guideCover.href.endsWith(".html", ignoreCase = true)
-                    ) {
-                        val html = bytes.toString(Charsets.UTF_8)
-                        val imgRegex = Regex("""<img[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                        val match = imgRegex.find(html)
-                        if (match != null) {
-                            val imgSrc = match.groupValues[1]
-                            val imgPath = resolvePath(parsedEpub.opfDir, imgSrc)
-                            zip.getEntry(imgPath)?.let { imgEntry ->
-                                zip.getInputStream(imgEntry).use { it.readBytes() }.let { return it }
-                            }
+        // Level 2: item with properties="cover-image"
+        val coverImageItem = parsedEpub.manifest.values.find { it.properties == "cover-image" }
+        if (coverImageItem != null) {
+            val path = resolvePath(parsedEpub.opfDir, coverImageItem.href)
+            if (coverImageItem.mediaType == "image/svg+xml") {
+                Log.w(TAG, "SVG cover detected at $path - skipping Bitmap extraction")
+                return null
+            }
+            zip.getEntry(path)?.let { entry ->
+                zip.getInputStream(entry).use { it.readBytes() }.let { return it }
+            }
+        }
+
+        // Level 3: guide reference type="cover"
+        val guideCover = parsedEpub.guide.find { it.type.equals("cover", ignoreCase = true) }
+        if (guideCover != null) {
+            val path = resolvePath(parsedEpub.opfDir, guideCover.href)
+            zip.getEntry(path)?.let { entry ->
+                val bytes = zip.getInputStream(entry).use { it.readBytes() }
+                // Check if the guide points to an image or XHTML
+                if (guideCover.href.endsWith(".jpg", ignoreCase = true) ||
+                    guideCover.href.endsWith(".jpeg", ignoreCase = true) ||
+                    guideCover.href.endsWith(".png", ignoreCase = true)
+                ) {
+                    return bytes
+                }
+                // If XHTML, try to extract first image from it
+                if (guideCover.href.endsWith(".xhtml", ignoreCase = true) ||
+                    guideCover.href.endsWith(".html", ignoreCase = true)
+                ) {
+                    val html = bytes.toString(Charsets.UTF_8)
+                    val imgRegex = Regex("""<img[^>]+src=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                    val match = imgRegex.find(html)
+                    if (match != null) {
+                        val imgSrc = match.groupValues[1]
+                        val imgPath = resolvePath(parsedEpub.opfDir, imgSrc)
+                        zip.getEntry(imgPath)?.let { imgEntry ->
+                            zip.getInputStream(imgEntry).use { it.readBytes() }.let { return it }
                         }
                     }
                 }
             }
-
-            // Level 4: heuristic by name "cover" in manifest
-            val heuristicItem = parsedEpub.manifest.values.find { item ->
-                item.href.lowercase().contains("cover") &&
-                    item.mediaType.startsWith("image/") &&
-                    item.mediaType != "image/svg+xml" // BUG-EPUB-019: skip SVG
-            }
-            if (heuristicItem != null) {
-                val path = resolvePath(parsedEpub.opfDir, heuristicItem.href)
-                zip.getEntry(path)?.let { entry ->
-                    zip.getInputStream(entry).use { it.readBytes() }.let { return it }
-                }
-            }
-
-            // Level 5: first image in manifest
-            val firstImage = parsedEpub.manifest.values.find {
-                it.mediaType.startsWith("image/") && it.mediaType != "image/svg+xml"
-            }
-            if (firstImage != null) {
-                val path = resolvePath(parsedEpub.opfDir, firstImage.href)
-                zip.getEntry(path)?.let { entry ->
-                    zip.getInputStream(entry).use { it.readBytes() }.let { return it }
-                }
-            }
-
-            return null
         }
+
+        // Level 4: heuristic by name "cover" in manifest
+        val heuristicItem = parsedEpub.manifest.values.find { item ->
+            item.href.lowercase().contains("cover") &&
+                item.mediaType.startsWith("image/") &&
+                item.mediaType != "image/svg+xml" // BUG-EPUB-019: skip SVG
+        }
+        if (heuristicItem != null) {
+            val path = resolvePath(parsedEpub.opfDir, heuristicItem.href)
+            zip.getEntry(path)?.let { entry ->
+                zip.getInputStream(entry).use { it.readBytes() }.let { return it }
+            }
+        }
+
+        // Level 5: first image in manifest
+        val firstImage = parsedEpub.manifest.values.find {
+            it.mediaType.startsWith("image/") && it.mediaType != "image/svg+xml"
+        }
+        if (firstImage != null) {
+            val path = resolvePath(parsedEpub.opfDir, firstImage.href)
+            zip.getEntry(path)?.let { entry ->
+                zip.getInputStream(entry).use { it.readBytes() }.let { return it }
+            }
+        }
+
+        return null
     }
 
     /**
