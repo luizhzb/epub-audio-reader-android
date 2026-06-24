@@ -53,6 +53,7 @@ class EpubParserImpl @Inject constructor(
                     manifest = parsedOpf.manifest,
                     spine = parsedOpf.spine,
                     toc = toc,
+                    guide = parsedOpf.guide,
                     opfDir = opfDir,
                     bookFile = file
                 )
