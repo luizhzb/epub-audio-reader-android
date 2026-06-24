@@ -1,23 +1,42 @@
 package com.epubaudioreader.core.data.epub.parser
 
+import android.util.Log
 import com.epubaudioreader.core.data.epub.model.TocEntry
 import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
 import java.util.zip.ZipFile
 import javax.inject.Inject
 
+/**
+ * Parses NCX (Navigation Control file for XML) for EPUB 2 TOC.
+ * Maps TOC entries to correct spine indices via href lookup (BUG-EPUB-003).
+ * Includes XXE protection (BUG-EPUB-005) and encoding detection (BUG-EPUB-007).
+ * Populates spineIndex correctly (BUG-EPUB-012).
+ */
 class NcxParser @Inject constructor() {
 
-    fun parse(zipFile: ZipFile, ncxPath: String): List<TocEntry> {
+    companion object {
+        private const val TAG = "NcxParser"
+    }
+
+    /**
+     * Parses NCX file and returns TOC entries with correct spine indices.
+     *
+     * @param zipFile The EPUB zip file
+     * @param ncxPath Path to the NCX file within the EPUB
+     * @param hrefToSpineIndex Map of manifest href -> spine index for correct alignment (BUG-EPUB-003)
+     */
+    fun parse(
+        zipFile: ZipFile,
+        ncxPath: String,
+        hrefToSpineIndex: Map<String, Int> = emptyMap()
+    ): List<TocEntry> {
         val entry = zipFile.getEntry(ncxPath)
             ?: throw IllegalArgumentException("NCX file not found: $ncxPath")
 
         zipFile.getInputStream(entry).use { stream ->
-            val factory = XmlPullParserFactory.newInstance().apply {
-                isNamespaceAware = true
-            }
-            val parser = factory.newPullParser()
-            parser.setInput(stream, "UTF-8")
+            // BUG-EPUB-005: Secure factory with XXE protection
+            // BUG-EPUB-007: Auto-detect encoding from BOM or XML declaration
+            val parser = XmlParserUtils.createSecureParser(stream)
 
             val entries = mutableListOf<TocEntry>()
             val navPointStack = mutableListOf<NavPoint>()
@@ -40,6 +59,7 @@ class NcxParser @Inject constructor() {
                             "content" -> {
                                 if (navPointStack.isNotEmpty()) {
                                     val src = parser.getAttributeValue(null, "src") ?: ""
+                                    // Normalize src: remove fragment
                                     navPointStack.last().src = src
                                 }
                             }
@@ -62,11 +82,25 @@ class NcxParser @Inject constructor() {
                                 if (navPointStack.isNotEmpty()) {
                                     val navPoint = navPointStack.removeAt(navPointStack.lastIndex)
                                     if (navPoint.src.isNotBlank()) {
+                                        // BUG-EPUB-003 & BUG-EPUB-012:
+                                        // Find actual spine index by href lookup instead of using playOrder
+                                        val hrefWithoutFragment = navPoint.src.substringBefore("#")
+                                        val actualSpineIndex = hrefToSpineIndex[hrefWithoutFragment]
+                                            ?: navPoint.playOrder
+
+                                        if (actualSpineIndex != navPoint.playOrder) {
+                                            Log.d(TAG,
+                                                "TOC entry '${navPoint.text}' remapped: " +
+                                                "playOrder=${navPoint.playOrder} -> spineIndex=$actualSpineIndex " +
+                                                "(href=$hrefWithoutFragment)"
+                                            )
+                                        }
+
                                         entries.add(
                                             TocEntry(
-                                                title = navPoint.text.ifBlank { "Capítulo ${entries.size + 1}" },
+                                                title = navPoint.text.ifBlank { "Cap\u00edtulo ${entries.size + 1}" },
                                                 href = navPoint.src,
-                                                spineIndex = navPoint.playOrder,
+                                                spineIndex = actualSpineIndex,
                                                 depth = navPointStack.size,
                                                 linear = true
                                             )
