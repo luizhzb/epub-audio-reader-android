@@ -39,7 +39,8 @@ class TextExtractor @Inject constructor() {
         val document = Jsoup.parse(cleanedHtml)
 
         // Remove comment nodes that Jsoup may have parsed (BUG-EPUB-017)
-        document.traverse { node ->
+        // BUG FIX: traverse callback takes (Node, Int) not just (Node)
+        document.traverse { node, _ ->
             if (node is Comment) {
                 node.remove()
             }
@@ -195,7 +196,7 @@ class TextExtractor @Inject constructor() {
             .replace("&#8211;", "\u2013")
             .replace("&#8230;", "\u2026")
             // Generic numeric entities
-            .replace(Regex("""&#(\\d+);""")) { match ->
+            .replace(Regex("""&#(\d+);""")) { match ->
                 val code = match.groupValues[1].toIntOrNull() ?: 0
                 if (code in 32..65535) code.toChar().toString() else match.value
             }
