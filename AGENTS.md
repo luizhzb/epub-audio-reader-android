@@ -4,7 +4,7 @@
 
 ---
 
-## ✅ Estado Atual (última atualização: 2026-06-23)
+## ✅ Estado Atual (última atualização: 2026-06-24)
 
 O projeto está **compilando e publicando releases automaticamente** via GitHub Actions.
 
@@ -32,6 +32,12 @@ O projeto está **compilando e publicando releases automaticamente** via GitHub 
    - Implementação antiga usava `XmlPullParser` e falhava no teste de separação de parágrafos
    - Nova implementação usa **Jsoup**
    - Foi necessário adicionar a dependência `jsoup` em `core/data/build.gradle.kts` **E** no `gradle/libs.versions.toml` (versão + library)
+
+4. **Correção do playback na tela de leitura (commit recente):**
+   - `TtsSynthesizer` agora serializa as chamadas ao motor Sherpa-ONNX (`OfflineTts` não é thread-safe)
+   - `PlaybackCoordinator` roda em `Dispatchers.IO` para não bloquear a main thread
+   - Corrigidas transições de estado do `AudioTrack` (evita `pause()` após `stop()`)
+   - Adicionados logs detalhados em `ReaderViewModel`, `PlaybackCoordinator` e `TtsSynthesizer`
 
 ---
 
@@ -90,7 +96,12 @@ Primeiro paragrafo.\n\nSegundo paragrafo.
 
 Se alterar a lógica de extração de texto, garanta que esse teste continue passando.
 
-### 6. O release é automático em push para `main`
+### 6. Cuidado com thread-safety do TTS
+O motor Sherpa-ONNX (`OfflineTts`) **não é thread-safe**. O `TtsSynthesizer` usa um `Mutex` para serializar `speak()` e `synthesizeToMemory()`. Não remova essa serialização e não chame `OfflineTts.generateWithConfigAndCallback` de múltiplas threads/corrotinas simultaneamente.
+
+Além disso, o `AudioTrack` é compartilhado e gerenciado com `synchronized(lock)`. Evite transições inválidas de estado (ex.: `pause()` vindo de `PLAYSTATE_STOPPED`).
+
+### 7. O release é automático em push para `main`
 Todo push para `main` dispara o workflow `Build APK + Release`. Ele:
 - Builda o APK debug
 - Roda os testes
@@ -98,7 +109,7 @@ Todo push para `main` dispara o workflow `Build APK + Release`. Ele:
 
 Não é necessário criar releases manualmente, mas **evite pushes quebrados** para `main`.
 
-### 7. Não use `git push` sem confirmação do usuário
+### 8. Não use `git push` sem confirmação do usuário
 Git mutations (push, reset, rebase, etc.) devem ser feitas apenas quando o usuário pedir explicitamente.
 
 ---
