@@ -1,6 +1,8 @@
 package com.epubaudioreader.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -42,6 +44,7 @@ private fun BookCardPreview() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BookCard(
     book: Book,
@@ -50,18 +53,16 @@ fun BookCard(
     onLongClick: (() -> Unit)? = null
 ) {
     Card(
-        onClick = onClick,
         modifier = modifier,
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(
-            modifier = if (onLongClick != null) {
-                Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 4.dp)
-            } else {
-                Modifier.fillMaxWidth()
-            }
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick
+                )
         ) {
             Box(
                 modifier = Modifier
