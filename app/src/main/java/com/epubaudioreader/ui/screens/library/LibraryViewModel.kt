@@ -52,21 +52,38 @@ class LibraryViewModel @Inject constructor(
 
     fun importBook(uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(importProgress = ImportProgress.Importing("Importando...", 0)) }
+            _uiState.update { it.copy(isImporting = true, importProgress = ImportProgress.Importing("Importando...", 0)) }
             var tempFile: File? = null
             try {
                 tempFile = copyUriToTempFile(uri)
                 val fileSize = tempFile.length()
                 when (val result = importBookUseCase(tempFile.absolutePath, fileSize)) {
                     is com.epubaudioreader.core.common.result.Result.Success -> {
-                        _uiState.update { it.copy(importProgress = ImportProgress.Success(result.data.id)) }
+                        _uiState.update {
+                            it.copy(
+                                importProgress = ImportProgress.Success(result.data.id),
+                                isImporting = false
+                            )
+                        }
                     }
                     is com.epubaudioreader.core.common.result.Result.Error -> {
-                        _uiState.update { it.copy(importProgress = ImportProgress.Error(result.message)) }
+                        _uiState.update {
+                            it.copy(
+                                importProgress = ImportProgress.Error(result.message),
+                                isImporting = false,
+                                error = result.message
+                            )
+                        }
                     }
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(importProgress = ImportProgress.Error(e.message ?: "Erro ao importar")) }
+                _uiState.update {
+                    it.copy(
+                        importProgress = ImportProgress.Error(e.message ?: "Erro ao importar"),
+                        isImporting = false,
+                        error = e.message ?: "Erro ao importar"
+                    )
+                }
             } finally {
                 tempFile?.delete()
             }
