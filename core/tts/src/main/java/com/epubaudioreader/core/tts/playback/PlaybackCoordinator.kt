@@ -27,16 +27,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Coordenador central de playback de TTS.
- *
- * Integra segmentacao de texto, pipeline de sintese e reproducao,
- * fornecendo um StateFlow unificado para a UI observar.
- *
- * O playback roda em [Dispatchers.IO] porque as operacoes de AudioTrack
- * (especialmente write em modo bloqueante) nao podem travar a main thread.
- *
- * Todas as operacoes de estado mutavel sao protegidas por um Mutex (BUG-004 fix)
- * para garantir thread-safety como @Singleton.
+ * Coordenador central de playback de TTS com melhorias de robustez.
+ * 
+ * Melhorias:
+ * 1. Verifica se AudioTrack esta inicializado antes de iniciar playback
+ * 2. Try/catch em playSegment para evitar crash nativo
+ * 3. Mensagens de erro amigaveis em portugues
+ * 4. Verificacao de estado do sintetizador no fallback
+ * 5. Protecao contra chamada com engine nao inicializado
  */
 @Singleton
 class PlaybackCoordinator @Inject constructor(
@@ -46,10 +44,10 @@ class PlaybackCoordinator @Inject constructor(
 ) {
     companion object {
         private const val TAG = "PlaybackCoordinator"
-        private const val MAX_WAIT_CYCLES = 75  // 15s no total
+        private const val MAX_WAIT_CYCLES = 75
         private const val WAIT_DELAY_MS = 200L
         private const val PREFETCH_AHEAD = 3
-        private const val SEGMENT_GAP_MS = 300L  // Pausa entre segmentos
+        private const val SEGMENT_GAP_MS = 300L
     }
 
     private val _state = MutableStateFlow(PlaybackState())
@@ -59,9 +57,16 @@ class PlaybackCoordinator @Inject constructor(
     private var playbackJob: Job? = null
     private var segments: List<TextSegment> = emptyList()
 
-    /** Mutex que protege todas as operacoes de estado mutavel (BUG-004 fix) */
     private val mutex = Mutex()
 
+    /**
+     * Inicia playback de paragrafos com verificacao de inicializacao.
+     * 
+     * Melhorias:
+     * - Verifica se AudioTrack esta inicializado antes de comecar
+     * - Retorna erro amigavel se sintetizador nao esta pronto
+     * - Mensagens de log detalhadas para diagnostico
+     */
     fun playParagraphs(paragraphs: List<String>, startIndex: Int = 0) {
         Log.i(TAG, "playParagraphs: ${paragraphs.size} paragrafos, indice=$startIndex")
 
@@ -72,6 +77,15 @@ class PlaybackCoordinator @Inject constructor(
 
             if (paragraphs.isEmpty()) {
                 _state.value = PlaybackState(error = "Nenhum texto para ler")
+                return@launch
+            }
+
+            // MELHORIA: Verificar se sintetizador esta inicializado
+            if (!synthesizer.isAudioTrackInitialized()) {
+                Log.e(TAG, "AudioTrack nao inicializado. Modelo TTS nao esta pronto.")
+                _state.value = PlaybackState(
+                    error = "Modelo de voz nao carregado. Carregue o modelo primeiro."
+                )
                 return@launch
             }
 
@@ -132,7 +146,7 @@ class PlaybackCoordinator @Inject constructor(
                     for (i in startIndex until currentSegments.size) {
                         if (!isActive) break
 
-                        yield() // Da chance para corrotinas de cancelamento
+                        yield()
 
                         val segment = currentSegments[i]
                         _state.update {
@@ -142,7 +156,6 @@ class PlaybackCoordinator @Inject constructor(
                         pipeline.prefetchUpTo(i, PREFETCH_AHEAD)
                         playSegment(i)
 
-                        // Pausa entre segmentos para o usuario processar
                         if (isActive && i < currentSegments.size - 1) {
                             delay(SEGMENT_GAP_MS)
                         }
@@ -160,7 +173,7 @@ class PlaybackCoordinator @Inject constructor(
                         it.copy(
                             isPlaying = false,
                             isPreparing = false,
-                            error = e.message
+                            error = "Erro na reproducao: ${e.message}"
                         )
                     }
                 }
@@ -172,35 +185,57 @@ class PlaybackCoordinator @Inject constructor(
         }
     }
 
+    /**
+     * Reproduz um segmento individual com protecao contra falhas.
+     * 
+     * Melhorias:
+     * - Try/catch completo para evitar crash nativo
+     * - Verifica AudioTrack antes do fallback de sintese direta
+     * - Mensagens de erro detalhadas por segmento
+     */
     private suspend fun playSegment(index: Int) {
         Log.d(TAG, "playSegment($index)")
 
-        // Tenta tocar do cache primeiro
-        val cached = pipeline.awaitAudio(index, timeoutMs = WAIT_DELAY_MS * MAX_WAIT_CYCLES)
-        if (cached != null && cached.samples.isNotEmpty()) {
-            Log.d(TAG, "Tocando segmento $index do cache (${cached.samples.size} samples)")
-            val result = synthesizer.playSamples(cached.samples, cached.sampleRate)
-            result.onFailure { e ->
-                Log.e(TAG, "Erro ao tocar segmento $index do cache: ${e.message}")
-                _state.update { it.copy(error = e.message) }
+        try {
+            // Tenta tocar do cache primeiro
+            val cached = pipeline.awaitAudio(index, timeoutMs = WAIT_DELAY_MS * MAX_WAIT_CYCLES)
+            if (cached != null && cached.samples.isNotEmpty()) {
+                Log.d(TAG, "Tocando segmento $index do cache (${cached.samples.size} samples)")
+                val result = synthesizer.playSamples(cached.samples, cached.sampleRate)
+                result.onFailure { e ->
+                    Log.e(TAG, "Erro ao tocar segmento $index do cache: ${e.message}")
+                    _state.update { it.copy(error = "Erro de audio: ${e.message}") }
+                }
+
+                val durationMs = (cached.samples.size.toFloat() / cached.sampleRate * 1000).toLong()
+                Log.d(TAG, "Aguardando ${durationMs}ms de playback do segmento $index")
+                delay(durationMs)
+                return
             }
 
-            // Aguarda a duracao estimada do audio
-            val durationMs = (cached.samples.size.toFloat() / cached.sampleRate * 1000).toLong()
-            Log.d(TAG, "Aguardando ${durationMs}ms de playback do segmento $index")
-            delay(durationMs)
-            return
-        }
+            // Fallback: sintese direta via speak
+            val currentSegments = mutex.withLock { segments }
+            val segment = currentSegments.getOrNull(index) ?: return
 
-        // Fallback: sintese direta via speak
-        val currentSegments = mutex.withLock { segments }
-        val segment = currentSegments.getOrNull(index) ?: return
-        Log.d(TAG, "Tocando segmento $index por geracao direta: '${segment.text.take(50)}...'")
+            // MELHORIA: Verificar AudioTrack antes do fallback
+            if (!synthesizer.isAudioTrackInitialized()) {
+                Log.e(TAG, "AudioTrack nao inicializado no fallback do segmento $index")
+                _state.update { it.copy(error = "Audio nao inicializado") }
+                return
+            }
 
-        val result = synthesizer.speak(segment.text, onComplete = null)
-        result.onFailure { e ->
-            Log.e(TAG, "Erro no segmento $index: ${e.message}")
-            _state.update { it.copy(error = e.message) }
+            Log.d(TAG, "Tocando segmento $index por geracao direta: '${segment.text.take(50)}...'")
+            val result = synthesizer.speak(segment.text, onComplete = null)
+            result.onFailure { e ->
+                Log.e(TAG, "Erro no segmento $index: ${e.message}")
+                _state.update { it.copy(error = "Erro na sintese: ${e.message}") }
+            }
+        } catch (e: CancellationException) {
+            // Re-lanca para que o loop principal capture
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Erro fatal em playSegment($index): ${e.message}", e)
+            _state.update { it.copy(error = "Erro ao reproduzir segmento: ${e.message}") }
         }
     }
 
@@ -225,7 +260,6 @@ class PlaybackCoordinator @Inject constructor(
         }
     }
 
-    /** Operacao stop interna - DEVE ser chamada dentro de mutex.withLock (BUG-007 fix) */
     private fun stopInternal() {
         playbackJob?.cancel()
         playbackJob = null
@@ -242,10 +276,6 @@ class PlaybackCoordinator @Inject constructor(
         }
     }
 
-    /**
-     * Libera os recursos do playback atual.
-     * BUG-012: Cancela o scope para evitar memory leak.
-     */
     fun release() {
         stop()
         scope.coroutineContext.cancelChildren()
