@@ -6,6 +6,8 @@
 /build/
 **/build/
 captures
+# Modelo TTS (baixado automaticamente no CI)
+core/tts/src/main/assets/
 .externalNativeBuild
 .cxx
 local.properties
