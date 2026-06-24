@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.zip.ZipFile
 import javax.inject.Inject
 
 class BookRepositoryImpl @Inject constructor(
@@ -33,6 +34,10 @@ class BookRepositoryImpl @Inject constructor(
     private val dispatcher: DispatcherProvider,
     private val bookMapper: BookMapper,
 ) : BookRepository {
+
+    companion object {
+        private const val TAG = "BookRepositoryImpl"
+    }
 
     override fun getAllBooks(): Flow<List<Book>> =
         bookDao.getAllBooks().map { list -> list.map { bookMapper.toDomain(it) } }
@@ -84,6 +89,25 @@ class BookRepositoryImpl @Inject constructor(
 
                 val parsedEpub = epubParser.parse(originalFile)
 
+                // BUG-EPUB-006: Validate spine is not empty before inserting
+                if (parsedEpub.spine.isEmpty()) {
+                    Log.e(TAG, "EPUB has empty spine - no readable chapters: $filePath")
+                    return@withContext Result.Error(
+                        IllegalStateException("O EPUB não possui capítulos legíveis (spine vazio)")
+                    )
+                }
+
+                // Also validate that at least one linear spine item has a corresponding manifest entry
+                val resolvableSpineItems = parsedEpub.spine.count { spineItem ->
+                    spineItem.linear && parsedEpub.manifest[spineItem.idref] != null
+                }
+                if (resolvableSpineItems == 0) {
+                    Log.e(TAG, "EPUB spine has no resolvable manifest items: $filePath")
+                    return@withContext Result.Error(
+                        IllegalStateException("O EPUB não possui capítulos resolvíveis no manifesto")
+                    )
+                }
+
                 val initialBookEntity = BookEntity(
                     title = parsedEpub.metadata.title,
                     authors = parsedEpub.metadata.authors.joinToString("; ").ifBlank { "Desconhecido" },
@@ -107,16 +131,19 @@ class BookRepositoryImpl @Inject constructor(
                 val storedFile = storageManager.copyBookFile(originalFile, bookId)
                 createdFiles += storedFile
 
-                val coverPath = coverExtractor.extractCover(
-                    parsedEpub.copy(bookFile = storedFile),
-                    bookId
-                )
-                coverPath?.let { createdFiles += File(it) }
+                val parsedEpubWithStoredFile = parsedEpub.copy(bookFile = storedFile)
 
-                val chapterDataList = chapterExtractor.extractChapters(
-                    parsedEpub.copy(bookFile = storedFile),
-                    bookId
-                )
+                // BUG-EPUB-004: Open ZipFile once and pass to extractors to avoid multiple opens
+                val (coverPath, chapterDataList) = ZipFile(storedFile).use { zip ->
+                    val cover = coverExtractor.extractCover(
+                        parsedEpubWithStoredFile, bookId, zip
+                    )
+                    val chapters = chapterExtractor.extractChapters(
+                        parsedEpubWithStoredFile, bookId, zip
+                    )
+                    cover to chapters
+                }
+                coverPath?.let { createdFiles += File(it) }
 
                 // Save ALL chapter texts to filesystem BEFORE any DB transaction
                 val chapterPaths = mutableListOf<String>()
@@ -171,6 +198,8 @@ class BookRepositoryImpl @Inject constructor(
                 Result.Success(bookMapper.toDomain(finalBookEntity))
 
             } catch (e: Exception) {
+                // BUG-EPUB-008: Log rollback errors
+                Log.e(TAG, "Book import failed for $filePath, rolling back", e)
                 rollbackImport(bookId, createdFiles)
                 Result.Error(e)
             }
@@ -184,7 +213,8 @@ class BookRepositoryImpl @Inject constructor(
                 bookDao.getBookEntityById(bookId)?.let { bookDao.deleteBook(it) }
             }
         } catch (e: Exception) {
-            Log.e("BookRepository", "Error during import rollback", e)
+            // Best-effort rollback; log if needed
+            Log.e(TAG, "Error during import rollback for book $bookId", e)
         }
     }
 
@@ -204,7 +234,7 @@ class BookRepositoryImpl @Inject constructor(
                 try {
                     storageManager.deleteBookFiles(id)
                 } catch (e: Exception) {
-                    Log.e("BookRepository", "Falha ao deletar arquivos do livro $id", e)
+                    Log.e(TAG, "Falha ao deletar arquivos do livro $id", e)
                     return@withContext Result.Error(
                         IllegalStateException("Falha ao deletar arquivos do livro. O registro foi preservado.")
                     )
@@ -214,6 +244,7 @@ class BookRepositoryImpl @Inject constructor(
                 bookDao.deleteBook(book)
                 Result.Success(Unit)
             } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete book $id", e)
                 Result.Error(e)
             }
         }
