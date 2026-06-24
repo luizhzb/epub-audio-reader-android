@@ -40,6 +40,9 @@ class SherpaOnnxTtsEngine @Inject constructor(
             val config = getOfflineTtsConfig(
                 modelDir = MODEL_DIR,
                 modelName = MODEL_NAME,
+                acousticModelName = "",
+                vocoder = "",
+                voices = "",
                 lexicon = "",
                 dataDir = dataDir,
                 dictDir = "",
