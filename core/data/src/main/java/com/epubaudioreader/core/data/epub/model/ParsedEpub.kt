@@ -7,6 +7,7 @@ data class ParsedEpub(
     val manifest: Map<String, ManifestItem>,
     val spine: List<SpineItem>,
     val toc: List<TocEntry>,
+    val guide: List<GuideReference> = emptyList(),
     val opfDir: String,
     val bookFile: File
 )
