@@ -11,13 +11,18 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface BookDao {
+    /**
+     * COALESCE ensures books with no lastReadDate sort by importDate.
+     * For small-to-medium datasets this performs well; consider a compound
+     * index if the table grows beyond thousands of rows.
+     */
     @Query("SELECT * FROM books ORDER BY COALESCE(lastReadDate, importDate) DESC")
     fun getAllBooks(): Flow<List<BookEntity>>
 
     @Query("SELECT * FROM books WHERE id = :bookId")
     fun getBookById(bookId: Long): Flow<BookEntity?>
 
-    @Insert(onConflict = OnConflictStrategy.ABORT)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertBook(book: BookEntity): Long
 
     @Query(
