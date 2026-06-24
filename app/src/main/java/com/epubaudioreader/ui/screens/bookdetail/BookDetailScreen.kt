@@ -25,12 +25,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -55,13 +59,26 @@ fun BookDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(bookId) {
         viewModel.loadBook(bookId)
     }
 
+    // Observa erros e exibe Snackbar (BUG-UI-015)
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let { error ->
+            snackbarHostState.showSnackbar(
+                message = error,
+                duration = SnackbarDuration.Long
+            )
+            viewModel.clearError()
+        }
+    }
+
     BookDetailContent(
         uiState = uiState,
+        snackbarHostState = snackbarHostState,
         onBackClick = onBackClick,
         onChapterClick = onChapterClick,
         modifier = modifier
@@ -72,12 +89,14 @@ fun BookDetailScreen(
 @Composable
 internal fun BookDetailContent(
     uiState: BookDetailUiState,
+    snackbarHostState: SnackbarHostState,
     onBackClick: () -> Unit,
     onChapterClick: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
         modifier = modifier,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -299,6 +318,7 @@ private fun BookDetailContentPreview() {
                     )
                 )
             ),
+            snackbarHostState = SnackbarHostState(),
             onBackClick = {},
             onChapterClick = {}
         )
